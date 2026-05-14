@@ -1,0 +1,410 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum UserRole {
+  ADMIN
+  PROFESSIONAL
+  CLIENT
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+  PARTIAL
+}
+
+enum PaymentMethod {
+  CASH
+  CREDIT_CARD
+  DEBIT_CARD
+  PIX
+  TRANSFER
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  READ
+}
+
+enum NotificationType {
+  EMAIL
+  SMS
+  WHATSAPP
+  PUSH
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+// ============================================================================
+// MODELO: Users
+// ============================================================================
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String
+  revoked   Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String
+  name          String
+  phone         String?   @unique
+  avatar        String?
+  role          UserRole  @default(CLIENT)
+  active        Boolean   @default(true)
+  emailVerified Boolean   @default(false)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  resetCode        String?
+  resetCodeExpires DateTime?
+
+  professional      Professional?
+  appointmentsCreated Appointment[]  @relation("AppointmentCreator")
+  refreshTokens RefreshToken[] 
+
+  @@index([email])
+  @@index([role, active])
+  @@map("users")
+}
+
+model Client {
+  id          String    @id @default(uuid())
+  name        String
+  email       String?
+  phone       String?    @unique
+
+  phoneVerifiedAt DateTime?   
+  emailVerifiedAt DateTime?   
+
+  cpf         String?   @unique
+  birthDate   DateTime?
+  gender      Gender?
+  avatar      String?
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+
+  reengagementSentAt DateTime?
+  notes       String?   @db.Text
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  appointments Appointment[]
+  reviews      Review[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([active])
+
+  @@map("clients")
+}
+
+model PhoneVerification {
+  id         String   @id @default(uuid())
+  phone      String
+  codeHash   String
+  attempts   Int      @default(0)
+  expiresAt  DateTime
+  verifiedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([phone])
+  @@index([expiresAt])
+}
+
+// ============================================================================
+// MODELO: Professional
+// ============================================================================
+
+model Professional {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  specialty   String?
+  bio         String?  @db.Text
+  experience  Int?
+  commission  Decimal  @default(0) @db.Decimal(5, 2)
+  active      Boolean  @default(true)
+  rating      Decimal? @default(0) @db.Decimal(3, 2)
+  totalReviews Int     @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments         Appointment[]
+  timeSlots TimeSlot[]
+  professionalServices ProfessionalService[]
+  reviews              Review[]
+  schedules            Schedule[]
+
+  @@index([active])
+  @@index([rating])
+  @@map("professionals")
+}
+
+// ============================================================================
+// MODELO: Service
+// ============================================================================
+
+model Service {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  duration    Int
+  price       Decimal  @db.Decimal(10, 2)
+  category    String?
+  image       String?
+  active      Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  professionalServices ProfessionalService[]
+  appointments         Appointment[]
+
+  @@index([active])
+  @@index([category])
+  @@map("services")
+}
+
+// ============================================================================
+// MODELO: ProfessionalService
+// ============================================================================
+
+model ProfessionalService {
+  professionalId String
+  serviceId      String
+  customPrice    Decimal?  @db.Decimal(10, 2)
+  customDuration Int?
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([professionalId, serviceId])
+  @@index([professionalId, active])
+  @@map("professional_services")
+}
+
+// ============================================================================
+// MODELO: Schedule
+// ============================================================================
+
+model Schedule {
+  id             String   @id @default(uuid())
+  professionalId String
+  date           DateTime?  // nova coluna, opcional
+  dayOfWeek      Int?       // mantém para rotina semanal
+  startTime      String
+  endTime        String
+  breakStart     String?
+  breakEnd       String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([professionalId, dayOfWeek, active])
+  @@index([professionalId, date, active])
+  @@map("schedules")
+}
+
+// ============================================================================
+// MODELO: Appointment
+// ============================================================================
+
+model Appointment {
+  id             String            @id @default(uuid())
+  clientId       String
+  professionalId String
+  serviceId      String
+  createdById    String?
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  completedAt    DateTime?
+  status         AppointmentStatus @default(PENDING)
+  duration       Int
+  price          Decimal           @db.Decimal(10, 2)
+  notes          String?           @db.Text
+  cancelReason   String?           @db.Text
+  reminderSent   Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  client       Client       @relation(fields: [clientId], references: [id])
+  professional Professional @relation(fields: [professionalId], references: [id])
+  service      Service      @relation(fields: [serviceId], references: [id])
+  createdBy    User?        @relation("AppointmentCreator", fields: [createdById], references: [id])
+  payment      Payment?
+  review       Review?
+  timeSlot  TimeSlot?
+  notifications Notification[]
+
+  @@index([scheduledAt])
+  @@index([professionalId, scheduledAt])
+  @@index([clientId])
+  @@index([status])
+  @@index([scheduledAt, status])
+  @@map("appointments")
+}
+
+// ============================================================================
+// MODELO: Payment
+// ============================================================================
+
+model Payment {
+  id              String        @id @default(uuid())
+  appointmentId   String        @unique
+  amount          Decimal       @db.Decimal(10, 2)
+  discount        Decimal       @default(0) @db.Decimal(10, 2)
+  finalAmount     Decimal       @db.Decimal(10, 2)
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  transactionId   String?
+  notes           String?       @db.Text
+  paidAt          DateTime?
+  refundedAt      DateTime?
+  refundReason    String?       @db.Text
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([paidAt])
+  @@map("payments")
+}
+
+// ============================================================================
+// MODELO: Review
+// ============================================================================
+
+model Review {
+  id             String   @id @default(uuid())
+  appointmentId  String   @unique
+  clientId       String
+  professionalId String
+  rating         Int
+  comment        String?  @db.Text
+  response       String?  @db.Text
+  respondedAt    DateTime?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  appointment  Appointment  @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id])
+  professional Professional @relation(fields: [professionalId], references: [id])
+
+  @@index([professionalId, active])
+  @@index([rating])
+  @@map("reviews")
+}
+
+model TimeSlot {
+  id             String      @id @default(uuid())
+  professionalId String
+  startsAt       DateTime
+  available      Boolean     @default(true)
+  appointmentId  String?     @unique
+  createdAt      DateTime    @default(now())
+
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  appointment  Appointment? @relation(fields: [appointmentId], references: [id])
+
+  @@unique([professionalId, startsAt])
+  @@index([professionalId, startsAt, available])
+  @@map("time_slots")
+}
+
+// ============================================================================
+// MODELO: Notification
+// ============================================================================
+
+model Notification {
+  id            String             @id @default(uuid())
+  appointmentId String?
+  recipient     String
+  type          NotificationType
+  status        NotificationStatus @default(PENDING)
+  subject       String?
+  message       String             @db.Text
+  metadata      Json?
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  errorMessage  String?            @db.Text
+  attempts      Int                @default(0)
+  maxAttempts   Int                @default(3)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  @@index([status, attempts])
+  @@index([appointmentId])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================================================
+// MODELO: Configuration
+// ============================================================================
+
+model Configuration {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String   @db.Text
+  description String?  @db.Text
+  type        String   @default("string")
+  category    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@map("configurations")
+}
