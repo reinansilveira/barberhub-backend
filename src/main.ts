@@ -5,7 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { JwtService } from '@nestjs/jwt';
-import { MicroserviceOptions, Transport } from '@nestjs/microservices'; 
+import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -45,7 +45,13 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
-  await app.startAllMicroservices();
+  app.startAllMicroservices().catch((err) => {
+    console.error('Microservice error:', err);
+  });
+
   await app.listen(process.env.PORT ?? 3000);
+
+  console.log('HTTP server started');
 }
+
 bootstrap();
