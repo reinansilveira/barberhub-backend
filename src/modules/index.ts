@@ -13,3 +13,4 @@ export * from './auth/auth.module';
 export * from '../shared/redis/redis.module'
 export * from '../queues/queues.module'
 export * from './slots/slots.module'
+export * from './health/health.module'

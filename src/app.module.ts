@@ -17,6 +17,7 @@ import {
   RedisModule,
   QueuesModule,
   SlotsModule,
+  HealthModule,
 } from './modules';
 
 @Module({
@@ -37,8 +38,9 @@ import {
     RedisModule,
     QueuesModule,
     SlotsModule,
+    HealthModule,
   ],
   controllers: [],
   providers: [],
 })
-export class AppModule { }
+export class AppModule {}
