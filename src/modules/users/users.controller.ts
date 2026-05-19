@@ -35,8 +35,8 @@ export class UsersController {
     }
 
     @Delete(':id')
-    deactivate(@Param('id') id: string) {
-        return this.usersService.deactivate(id);
+    desactivate(@Param('id') id: string) {
+        return this.usersService.desactivate(id);
     }
 
     @Put(':id/password')

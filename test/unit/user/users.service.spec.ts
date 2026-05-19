@@ -231,11 +231,11 @@ describe('UsersService', () => {
     });
   });
 
-  describe('deactivate', () => {
+  describe('desactivate', () => {
     it('desativa o usuário definindo active como false', () => {
       prismaMock.user.update.mockResolvedValue({ ...USER_STUB, active: false });
 
-      service.deactivate('uuid-user-123');
+      service.desactivate('uuid-user-123');
 
       expect(prismaMock.user.update).toHaveBeenCalledWith({
         where: { id: 'uuid-user-123' },
@@ -247,7 +247,7 @@ describe('UsersService', () => {
       const usuarioDesativado = { ...USER_STUB, active: false };
       prismaMock.user.update.mockResolvedValue(usuarioDesativado);
 
-      const result = await service.deactivate('uuid-user-123');
+      const result = await service.desactivate('uuid-user-123');
 
       expect(result).toEqual(usuarioDesativado);
     });

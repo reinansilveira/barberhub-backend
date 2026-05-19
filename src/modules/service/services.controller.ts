@@ -45,7 +45,7 @@ export class ServicesController {
     }
 
     @Delete(':id')
-    async deactivate(@Param('id') id: string) {
-        return await this.services.deactivate(id);
+    async desactivate(@Param('id') id: string) {
+        return await this.services.desactivate(id);
     }
 }

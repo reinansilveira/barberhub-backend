@@ -66,7 +66,7 @@ export class ScheduleService {
     });
   }
 
-  async deactivate(id: string) {
+  async desactivate(id: string) {
     return this.prisma.schedule.update({ where: { id }, data: { active: false } });
   }
 }

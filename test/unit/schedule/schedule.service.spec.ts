@@ -374,11 +374,11 @@ describe('ScheduleService', () => {
     });
   });
 
-  describe('deactivate', () => {
+  describe('desactivate', () => {
     it('desativa o schedule definindo active como false', async () => {
       prismaMock.schedule.update.mockResolvedValue({ ...SCHEDULE_STUB, active: false });
 
-      await service.deactivate('uuid-schedule-1');
+      await service.desactivate('uuid-schedule-1');
 
       expect(prismaMock.schedule.update).toHaveBeenCalledWith({
         where: { id: 'uuid-schedule-1' },
@@ -390,7 +390,7 @@ describe('ScheduleService', () => {
       const scheduleDesativado = { ...SCHEDULE_STUB, active: false };
       prismaMock.schedule.update.mockResolvedValue(scheduleDesativado);
 
-      const result = await service.deactivate('uuid-schedule-1');
+      const result = await service.desactivate('uuid-schedule-1');
 
       expect(result).toEqual(scheduleDesativado);
     });

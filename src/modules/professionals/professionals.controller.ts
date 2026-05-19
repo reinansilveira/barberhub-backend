@@ -45,7 +45,7 @@ export class ProfessionalController {
     }
 
     @Delete(':id')
-    async deactivate(@Param('id') id: string) {
-        return await this.professionalService.deactivate(id);
+    async desactivate(@Param('id') id: string) {
+        return await this.professionalService.desactivate(id);
     }
 }

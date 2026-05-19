@@ -83,7 +83,7 @@ export class ProfessionalServicesService {
     });
   }
 
-  async deactivate(professionalId: string, serviceId: string) {
+  async desactivate(professionalId: string, serviceId: string) {
     return this.prisma.professionalService.update({
       where: {
         professionalId_serviceId: { professionalId, serviceId },

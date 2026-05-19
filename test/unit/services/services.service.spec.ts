@@ -218,11 +218,11 @@ describe('Services', () => {
     });
   });
 
-  describe('deactivate', () => {
+  describe('desactivate', () => {
     it('desativa o serviço definindo active como false', async () => {
       prismaMock.service.update.mockResolvedValue({ ...SERVICE_STUB, active: false });
 
-      await service.deactivate('uuid-service-1');
+      await service.desactivate('uuid-service-1');
 
       expect(prismaMock.service.update).toHaveBeenCalledWith({
         where: { id: 'uuid-service-1' },
@@ -234,7 +234,7 @@ describe('Services', () => {
       const servicoDesativado = { ...SERVICE_STUB, active: false };
       prismaMock.service.update.mockResolvedValue(servicoDesativado);
 
-      const result = await service.deactivate('uuid-service-1');
+      const result = await service.desactivate('uuid-service-1');
 
       expect(result).toEqual(servicoDesativado);
     });

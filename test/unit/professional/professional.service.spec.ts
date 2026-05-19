@@ -289,7 +289,7 @@ describe('ProfessionalService', () => {
   });
 
 
-  describe('deactivate', () => {
+  describe('desactivate', () => {
     it('verifica se o profissional existe antes de desativar', async () => {
       prismaMock.professional.findUnique.mockResolvedValue(PROFESSIONAL_STUB);
       prismaMock.professional.update.mockResolvedValue({
@@ -297,7 +297,7 @@ describe('ProfessionalService', () => {
         active: false,
       });
 
-      await service.deactivate('uuid-prof-1');
+      await service.desactivate('uuid-prof-1');
 
       expect(prismaMock.professional.findUnique).toHaveBeenCalledWith({
         where: { id: 'uuid-prof-1' },
@@ -311,7 +311,7 @@ describe('ProfessionalService', () => {
         active: false,
       });
 
-      await service.deactivate('uuid-prof-1');
+      await service.desactivate('uuid-prof-1');
 
       expect(prismaMock.professional.update).toHaveBeenCalledWith({
         where: { id: 'uuid-prof-1' },
@@ -324,7 +324,7 @@ describe('ProfessionalService', () => {
       prismaMock.professional.findUnique.mockResolvedValue(PROFESSIONAL_STUB);
       prismaMock.professional.update.mockResolvedValue(profDesativado);
 
-      const result = await service.deactivate('uuid-prof-1');
+      const result = await service.desactivate('uuid-prof-1');
 
       expect(result).toEqual(profDesativado);
     });
@@ -332,7 +332,7 @@ describe('ProfessionalService', () => {
     it('lança NotFoundException quando o profissional não existe', async () => {
       prismaMock.professional.findUnique.mockResolvedValue(null);
 
-      await expect(service.deactivate('id-inexistente')).rejects.toThrow(
+      await expect(service.desactivate('id-inexistente')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -340,7 +340,7 @@ describe('ProfessionalService', () => {
     it('não chama update quando o profissional não existe', async () => {
       prismaMock.professional.findUnique.mockResolvedValue(null);
 
-      await service.deactivate('id-inexistente').catch(() => {});
+      await service.desactivate('id-inexistente').catch(() => {});
 
       expect(prismaMock.professional.update).not.toHaveBeenCalled();
     });

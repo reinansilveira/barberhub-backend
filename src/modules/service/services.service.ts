@@ -57,7 +57,7 @@ export class Services {
         });
     }
 
-    async deactivate(id: string) {
+    async desactivate(id: string) {
         return this.prisma.service.update({
             where: { id },
             data: { active: false },

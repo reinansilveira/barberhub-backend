@@ -81,7 +81,7 @@ export class ProfessionalService {
     });
   }
 
-  async deactivate(id: string) {
+  async desactivate(id: string) {
     const professional = await this.prisma.professional.findUnique({
       where: { id },
     });

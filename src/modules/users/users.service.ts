@@ -53,7 +53,7 @@ export class UsersService {
         });
     }
 
-    deactivate(id: string) {
+    desactivate(id: string) {
         return this.prisma.user.update({
             where: { id },
             data: { active: false },

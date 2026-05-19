@@ -48,11 +48,11 @@ export class ProfessionalServicesController {
   }
 
   @Delete(':professionalId/:serviceId')
-  async deactivate(
+  async desactivate(
     @Param('professionalId') professionalId: string,
     @Param('serviceId') serviceId: string,
   ) {
-    return this.professionalServicesService.deactivate(
+    return this.professionalServicesService.desactivate(
       professionalId,
       serviceId,
     );

@@ -321,11 +321,11 @@ describe('ProfessionalServicesService', () => {
     });
   });
 
-  describe('deactivate', () => {
+  describe('desactivate', () => {
     it('desativa o vínculo pela chave composta', async () => {
       prismaMock.professionalService.update.mockResolvedValue(PROFESSIONAL_SERVICE_INATIVO_STUB);
 
-      await service.deactivate('uuid-prof-1', 'uuid-service-1');
+      await service.desactivate('uuid-prof-1', 'uuid-service-1');
 
       expect(prismaMock.professionalService.update).toHaveBeenCalledWith({
         where: {
@@ -341,7 +341,7 @@ describe('ProfessionalServicesService', () => {
     it('retorna o vínculo desativado', async () => {
       prismaMock.professionalService.update.mockResolvedValue(PROFESSIONAL_SERVICE_INATIVO_STUB);
 
-      const result = await service.deactivate('uuid-prof-1', 'uuid-service-1');
+      const result = await service.desactivate('uuid-prof-1', 'uuid-service-1');
 
       expect(result).toEqual(PROFESSIONAL_SERVICE_INATIVO_STUB);
     });

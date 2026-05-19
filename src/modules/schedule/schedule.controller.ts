@@ -46,7 +46,7 @@ export class ScheduleController {
     }
 
     @Delete(':id')
-    async deactivate(@Param('id') id: string) {
-        return this.scheduleService.deactivate(id);
+    async desactivate(@Param('id') id: string) {
+        return this.scheduleService.desactivate(id);
     }
 }
