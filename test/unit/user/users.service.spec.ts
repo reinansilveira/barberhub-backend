@@ -17,6 +17,7 @@ import {
 } from '../../mocks/factories/user.factory';
 import {
   USER_STUB,
+  USER_PROFISSIONAL_STUB,
   USER_COM_RESET_CODE_STUB,
   USER_COM_RESET_CODE_EXPIRADO_STUB,
 } from '../../mocks/stubs/user.stub';
@@ -168,6 +169,16 @@ describe('UsersService', () => {
       );
     });
 
+    it('lança ConflictException quando o telefone já está cadastrado', async () => {
+      prismaMock.user.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(USER_STUB);
+
+      await expect(
+        service.create(makeCreateUserDto({ phone: '+5579999999999' })),
+      ).rejects.toThrow(ConflictException);
+    });
+
     it('não cria o usuário quando o email já existe', async () => {
       prismaMock.user.findUnique.mockResolvedValue(USER_STUB);
 
@@ -228,6 +239,15 @@ describe('UsersService', () => {
       await service.update('id-inexistente', makeCreateUserDto()).catch(() => {});
 
       expect(prismaMock.user.update).not.toHaveBeenCalled();
+    });
+
+    it('lança ConflictException quando o telefone já está cadastrado em outro usuário', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(USER_STUB);
+      prismaMock.user.findFirst.mockResolvedValue(USER_PROFISSIONAL_STUB as any);
+
+      await expect(
+        service.update('uuid-user-123', makeCreateUserDto({ phone: '+5579999999999' })),
+      ).rejects.toThrow(ConflictException);
     });
   });
 

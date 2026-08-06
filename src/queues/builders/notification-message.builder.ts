@@ -67,6 +67,10 @@ export function buildReengagementEmail(
 export function buildAppointmentCreatedWhatsApp(event: AppointmentCreatedEvent): string {
   const { dateStr, timeStr } = formatDateTime(event.scheduledAt);
 
+  const credentials = event.initialPassword
+    ? `\n\n🔐 *Acesso ao seu painel*\nE-mail: ${event.clientEmail}\nSenha temporária: *${event.initialPassword}*\nTroque esta senha no primeiro acesso.`
+    : '';
+
   return (
     `Olá, ${event.clientName} tudo bem? 😊\n\n` +
     `Seu agendamento foi confirmado! ✅\n\n` +
@@ -75,13 +79,19 @@ export function buildAppointmentCreatedWhatsApp(event: AppointmentCreatedEvent):
     `✂️ *Serviço:* ${event.serviceName}\n` +
     `👤 *Profissional:* ${event.professionalName}\n` +
     `💰 *Valor:* R$ ${event.price.toFixed(2).replace('.', ',')}\n\n` +
-    WARNING_MESSAGE
+    WARNING_MESSAGE + credentials
   );
 }
 
 export function buildAppointmentCreatedEmail(event: AppointmentCreatedEvent): { subject: string; html: string; text: string } {
   const { dateStr, timeStr } = formatDateTime(event.scheduledAt);
   const price = `R$ ${event.price.toFixed(2).replace('.', ',')}`;
+  const credentialsHtml = event.initialPassword
+    ? `<div style="background:#EEEDFE;border-radius:10px;padding:16px;margin:20px 0;"><p style="margin:0 0 8px;font-weight:600;">Acesso ao seu painel</p><p style="margin:0;">E-mail: ${event.clientEmail}<br>Senha temporária: <strong>${event.initialPassword}</strong></p><p style="margin:8px 0 0;font-size:12px;">Troque esta senha no primeiro acesso.</p></div>`
+    : '';
+  const credentialsText = event.initialPassword
+    ? `\n\nAcesso ao seu painel\nE-mail: ${event.clientEmail}\nSenha temporária: ${event.initialPassword}\nTroque esta senha no primeiro acesso.`
+    : '';
 
   const subject = `✅ Agendamento confirmado — ${dateStr} às ${timeStr}`;
 
@@ -129,6 +139,8 @@ export function buildAppointmentCreatedEmail(event: AppointmentCreatedEvent): { 
             </tr>
           </table>
 
+          ${credentialsHtml}
+
           <div style="background:#FEF9C3;border-left:4px solid #CA8A04;border-radius:4px;padding:14px 16px;margin-bottom:8px;">
             <p style="font-size:13px;font-weight:600;color:#854D0E;margin:0 0 6px;">⚠️ Aviso importante</p>
             <p style="font-size:13px;color:#713F12;margin:0;line-height:1.6;">Caso não seja possível comparecer, pedimos que avise com antecedência. Quando o cliente não comparece sem informar, a vaga fica indisponível para outra pessoa e o valor do serviço é cobrado.</p>
@@ -150,7 +162,7 @@ export function buildAppointmentCreatedEmail(event: AppointmentCreatedEvent): { 
     `Seu agendamento foi confirmado!\n` +
     `Data: ${dateStr}\nHorário: ${timeStr}\nServiço: ${event.serviceName}\n` +
     `Profissional: ${event.professionalName}\nValor: ${price}\n\n` +
-    `Aviso importante: caso não seja possível comparecer, pedimos que avise com antecedência.`;
+    `Aviso importante: caso não seja possível comparecer, pedimos que avise com antecedência.` + credentialsText;
 
   return { subject, html, text };
 }

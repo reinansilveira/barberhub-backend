@@ -7,6 +7,8 @@ import { ValidateTokenDto } from './dto/validate-token.dto';
 import { VerifyCodeDto } from './dto/verify-code.dto';
 import { VerifyCodeResponseDto } from './dto/verify-code-response.dto';
 import { StartDto } from './dto/start.dto';
+import { ForgotPasswordDto } from '../users/dto/forgot-password.dto';
+import { ResetClientPasswordDto } from './dto/reset-client-password.dto';
 import { Public } from './decorators/public.decorator';
 
 @ApiTags('Auth')
@@ -20,6 +22,30 @@ export class AuthController {
   @ApiOperation({ summary: 'Autenticar usuário e retornar access + refresh token' })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Public()
+  @Post('client/login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Autenticar cliente e retornar access + refresh token' })
+  loginClient(@Body() dto: LoginDto) {
+    return this.authService.loginClient(dto);
+  }
+
+  @Public()
+  @Post('client/forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Enviar código de recuperação da senha do cliente' })
+  forgotClientPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.requestClientPasswordReset(dto.email);
+  }
+
+  @Public()
+  @Post('client/reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Redefinir senha do cliente com código temporário' })
+  resetClientPassword(@Body() dto: ResetClientPasswordDto) {
+    return this.authService.resetClientPassword(dto.email, dto.code, dto.newPassword);
   }
 
   @Public()

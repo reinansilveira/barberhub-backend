@@ -15,7 +15,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; email: string }) {
+  async validate(payload: { sub: string; email?: string; accountType?: 'USER' | 'CLIENT' }) {
+    if (payload.accountType === 'CLIENT') {
+      const client = await this.prisma.client.findUnique({ where: { id: payload.sub } });
+      if (!client || !client.active) {
+        throw new UnauthorizedException('Cliente inativo ou não encontrado');
+      }
+      return { id: client.id, email: client.email, accountType: 'CLIENT' };
+    }
 
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
@@ -25,6 +32,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Usuário inativo ou não encontrado');
     }
 
-    return { id: user.id, email: user.email };
+    return { id: user.id, email: user.email, accountType: 'USER' };
   }
 }

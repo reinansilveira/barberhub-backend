@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   ConflictException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { CreateProfessionalServiceDto } from './dto/create-professional-service.dto';
@@ -23,6 +24,29 @@ export class ProfessionalServicesService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async findByName(name: string, active?: string) {
+    const professional = await this.prisma.professional.findFirst({
+      where: {
+        active: active === 'false' ? false : true,
+        user: {
+          name: {
+            contains: name,
+            mode: 'insensitive',
+          },
+        },
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!professional) {
+      throw new NotFoundException('Profissional não encontrado');
+    }
+
+    return professional;
   }
 
   async create(data: CreateProfessionalServiceDto) {

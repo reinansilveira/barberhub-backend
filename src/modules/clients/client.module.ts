@@ -8,5 +8,6 @@ import { BrLocationValidator } from 'src/shared/validators/br-location.validator
   imports: [PrismaModule],
   controllers: [ClientController],
   providers: [ClientService, BrLocationValidator],
+  exports: [ClientService],
 })
 export class ClientModule { }

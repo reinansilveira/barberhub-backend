@@ -8,6 +8,7 @@ export class ClientCreateMapper {
       name: client.name,
       phone: client.phone,
       email: client.email ?? undefined,
+      avatar: client.avatar ?? undefined,
       createdAt: client.createdAt,
     };
   }

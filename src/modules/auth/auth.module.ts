@@ -7,6 +7,7 @@ import { JwtStrategy } from './jwt.strategy';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PrismaModule } from '../../shared/prisma/prisma.module';
 import { NotificationSenderService } from '../notifications/sender/notification-sender.service';
+import { ClientAuthGuard } from './client-auth.guard';
 
 @Module({
     imports: [
@@ -24,8 +25,9 @@ import { NotificationSenderService } from '../notifications/sender/notification-
         AuthService,
         JwtStrategy,
         JwtAuthGuard,
+        ClientAuthGuard,
         NotificationSenderService,
     ],
-    exports: [JwtModule, JwtAuthGuard, AuthService],
+    exports: [JwtModule, JwtAuthGuard, ClientAuthGuard, AuthService],
 })
 export class AuthModule { }

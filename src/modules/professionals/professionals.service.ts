@@ -81,6 +81,22 @@ export class ProfessionalService {
     });
   }
 
+  async updateAvatar(id: string, data: { avatar: string }) {
+    const professional = await this.prisma.professional.findUnique({
+      where: { id },
+      include: { user: true },
+    });
+
+    if (!professional) {
+      throw new NotFoundException('Profissional não encontrado');
+    }
+
+    return this.prisma.user.update({
+      where: { id: professional.userId },
+      data: { avatar: data.avatar },
+    });
+  }
+
   async deactivate(id: string) {
     const professional = await this.prisma.professional.findUnique({
       where: { id },

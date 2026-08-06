@@ -12,6 +12,7 @@ export interface AppointmentCreatedEvent {
   scheduledAt: Date;
   duration: number;
   price: number;
+  initialPassword?: string;
 }
 
 export interface ClientReengagementEvent {

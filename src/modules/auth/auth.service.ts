@@ -41,7 +41,28 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    return this.generateTokens(user.id, user.email);
+    return this.generateTokens({ id: user.id, email: user.email, accountType: 'USER' });
+  }
+
+  async loginClient({ email, password }: LoginDto) {
+    const client = await this.prisma.client.findFirst({
+      where: { email, active: true },
+      select: { id: true, email: true, password: true, mustChangePassword: true },
+    });
+
+    if (!client || !client.password || !(await bcrypt.compare(password, client.password))) {
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
+    return this.generateTokens({ id: client.id, email: client.email, accountType: 'CLIENT' }, client.mustChangePassword);
+  }
+
+  async issueClientSession(clientId: string) {
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+      select: { id: true, email: true, active: true, mustChangePassword: true },
+    });
+    if (!client || !client.active) throw new UnauthorizedException('Cliente inválido');
+    return this.generateTokens({ id: client.id, email: client.email, accountType: 'CLIENT' }, client.mustChangePassword);
   }
 
   async refresh(refreshToken: string) {
@@ -53,24 +74,36 @@ export class AuthService {
       const tokenHash = this.hashToken(refreshToken);
 
       const exists = await this.redis.get(
-        `refresh:${payload.sub}:${tokenHash}`,
+        `refresh:${payload.accountType === 'CLIENT' ? `CLIENT:${payload.sub}` : payload.sub}:${tokenHash}`,
       );
 
       if (!exists) {
         throw new UnauthorizedException('Refresh token inválido');
       }
 
-      await this.redis.del(`refresh:${payload.sub}:${tokenHash}`);
+      await this.redis.del(`refresh:${payload.accountType === 'CLIENT' ? `CLIENT:${payload.sub}` : payload.sub}:${tokenHash}`);
 
-      const user = await this.prisma.user.findUnique({
-        where: { id: payload.sub },
-      });
+      if (payload.accountType === 'CLIENT') {
+        const client = await this.prisma.client.findUnique({
+          where: { id: payload.sub },
+          select: { id: true, email: true, active: true, mustChangePassword: true },
+        });
+        if (!client || !client.active) {
+          throw new UnauthorizedException('Cliente inválido');
+        }
 
+        return this.generateTokens(
+          { id: client.id, email: client.email, accountType: 'CLIENT' },
+          client.mustChangePassword,
+        );
+      }
+
+      const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
       if (!user || !user.active) {
         throw new UnauthorizedException('Usuário inválido');
       }
 
-      return this.generateTokens(user.id, user.email);
+      return this.generateTokens({ id: user.id, email: user.email, accountType: 'USER' });
     } catch {
       throw new UnauthorizedException('Refresh token inválido ou expirado');
     }
@@ -82,9 +115,10 @@ export class AuthService {
         secret: process.env.JWT_SECRET,
       });
 
-      const user = await this.prisma.user.findUnique({
-        where: { id: payload.sub },
-      });
+      const accountType = payload.accountType === 'CLIENT' ? 'CLIENT' : 'USER';
+      const user = accountType === 'CLIENT'
+        ? await this.prisma.client.findUnique({ where: { id: payload.sub } })
+        : await this.prisma.user.findUnique({ where: { id: payload.sub } });
 
       if (!user || !user.active) {
         throw new UnauthorizedException('Usuário inválido');
@@ -92,15 +126,20 @@ export class AuthService {
 
       return {
         valid: true,
-        user: { id: user.id, email: user.email },
+        user: accountType === 'CLIENT'
+          ? { id: user.id, email: user.email, accountType }
+          : { id: user.id, email: user.email },
       };
     } catch {
       throw new UnauthorizedException('Token inválido');
     }
   }
 
-  private async generateTokens(userId: string, email: string) {
-    const payload = { sub: userId, email };
+  private async generateTokens(
+    principal: { id: string; email: string | null; accountType: 'USER' | 'CLIENT' },
+    mustChangePassword = false,
+  ) {
+    const payload = { sub: principal.id, email: principal.email, accountType: principal.accountType };
 
     const access_token = this.jwt.sign(payload, {
       secret: process.env.JWT_SECRET,
@@ -115,13 +154,43 @@ export class AuthService {
     const tokenHash = this.hashToken(refresh_token);
 
     await this.redis.set(
-      `refresh:${userId}:${tokenHash}`,
+      `refresh:${principal.accountType === 'CLIENT' ? `CLIENT:${principal.id}` : principal.id}:${tokenHash}`,
       '1',
       'EX',
       60 * 60 * 24 * 7,
     );
 
-    return { access_token, refresh_token };
+    return principal.accountType === 'CLIENT'
+      ? { access_token, refresh_token, mustChangePassword }
+      : { access_token, refresh_token };
+  }
+
+  async requestClientPasswordReset(email: string) {
+    const client = await this.prisma.client.findFirst({ where: { email, active: true } });
+    if (!client) return { message: 'Se houver uma conta, enviaremos as instruções.' };
+    const code = crypto.randomInt(100000, 1000000).toString();
+    await this.redis.set(`client:password-reset:${client.id}`, await bcrypt.hash(code, 10), 'EX', 15 * 60);
+    const message = `Seu código para redefinir a senha é: ${code}. Ele expira em 15 minutos.`;
+    await Promise.all([
+      this.notificationSender.sendEmail(client.email!, 'Redefinição de senha', `<p>${message}</p>`, message),
+      client.phone ? this.notificationSender.sendWhatsApp(client.phone, message) : Promise.resolve(),
+    ]);
+    return { message: 'Se houver uma conta, enviaremos as instruções.' };
+  }
+
+  async resetClientPassword(email: string, code: string, newPassword: string) {
+    const client = await this.prisma.client.findFirst({ where: { email, active: true } });
+    const key = client ? `client:password-reset:${client.id}` : '';
+    const codeHash = client ? await this.redis.get(key) : null;
+    if (!client || !codeHash || !(await bcrypt.compare(code, codeHash))) {
+      throw new BadRequestException('Código inválido ou expirado.');
+    }
+    await this.prisma.client.update({
+      where: { id: client.id },
+      data: { password: await bcrypt.hash(newPassword, 10), passwordSetAt: new Date(), mustChangePassword: false },
+    });
+    await this.redis.del(key);
+    return { message: 'Senha redefinida com sucesso.' };
   }
 
   private async generateOtp(phone: string) {

@@ -12,12 +12,13 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SlotsService, SlotResult, SlotBatchResult } from './slots.service';
 import { CreateSlotDto } from './dto/create-slot.dto';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('Slots')
 @ApiBearerAuth()
 @Controller('slots')
 export class SlotsController {
-  constructor(private readonly slotsService: SlotsService) {}
+  constructor(private readonly slotsService: SlotsService) { }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -26,6 +27,7 @@ export class SlotsController {
     return this.slotsService.create(dto);
   }
 
+  @Public()
   @Get()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Listar slots disponíveis por profissional e data' })

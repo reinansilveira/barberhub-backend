@@ -34,7 +34,7 @@ export class AppointmentsService {
         return AppointmentMapper.toResponse(appointment);
     }
 
-    public async create(dto: CreateAppointmentDto, createdById?: string,): Promise<AppointmentResponseDto> {
+    public async create(dto: CreateAppointmentDto, createdById?: string, initialPassword?: string): Promise<AppointmentResponseDto> {
         const client = await this.prisma.client.findUnique({ where: { id: dto.clientId } });
 
         if (!client) throw new BadRequestException('Cliente não encontrado');
@@ -102,6 +102,7 @@ export class AppointmentsService {
                 client,
                 professional,
                 professionalService.service.name,
+                initialPassword,
             ),
         );
 

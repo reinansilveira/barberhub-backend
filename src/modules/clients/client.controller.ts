@@ -9,17 +9,32 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Request } from 'express';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ClientService } from './client.service';
 import { CreateClientDto } from './dto/create-client.dto';
+import { UpdateClientAvatarDto } from './dto/update-client-avatar.dto';
 import { ClientResponseDto } from './dto/client-response.dto';
 import { Public } from '../auth/decorators/public.decorator';
+import { ClientAuthGuard } from '../auth/client-auth.guard';
 
 @ApiTags('Clients')
+@ApiBearerAuth()
 @Controller('clients')
 export class ClientController {
   constructor(private readonly clientService: ClientService) { }
+
+  @Get('me/dashboard')
+  @UseGuards(ClientAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Obter dashboard do cliente autenticado' })
+  public dashboard(@Req() request: Request) {
+    const principal = request['user'] as unknown as { sub: string };
+    return this.clientService.getDashboard(principal.sub);
+  }
 
   @Get(':id')
   @Public()
@@ -49,6 +64,17 @@ export class ClientController {
     @Body() dto: CreateClientDto,
   ): Promise<ClientResponseDto> {
     return this.clientService.update(id, dto);
+  }
+
+  @Patch(':id/avatar')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Atualizar avatar do cliente' })
+  public updateAvatar(
+    @Param('id') id: string,
+    @Body() dto: UpdateClientAvatarDto,
+  ): Promise<ClientResponseDto> {
+    return this.clientService.updateAvatar(id, dto);
   }
 
   @Delete(':id')

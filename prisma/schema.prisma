@@ -113,6 +113,10 @@ model Client {
   email       String?
   phone       String?    @unique
 
+  password         String?
+  passwordSetAt    DateTime?
+  mustChangePassword Boolean @default(true)
+
   phoneVerifiedAt DateTime?   
   emailVerifiedAt DateTime?   
 

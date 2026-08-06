@@ -3,6 +3,7 @@ import {
     BadRequestException,
     ConflictException,
 } from '@nestjs/common';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { EmailService } from '../../shared/email/email.service';
 import * as bcrypt from 'bcrypt';
@@ -38,19 +39,45 @@ export class UsersService {
         });
         if (exists) throw new ConflictException('Email já cadastrado');
 
-        const hashedPassword = await bcrypt.hash(data.password, 10);
-        return this.prisma.user.create({
-            data: { ...data, password: hashedPassword },
-        });
+        if (data.phone) {
+            const phoneExists = await this.prisma.user.findUnique({
+                where: { phone: data.phone },
+            });
+            if (phoneExists) throw new ConflictException('Telefone já cadastrado');
+        }
+
+        try {
+            const hashedPassword = await bcrypt.hash(data.password, 10);
+            return this.prisma.user.create({
+                data: { ...data, password: hashedPassword },
+            });
+        } catch (error) {
+            this.handleUniqueConstraint(error);
+        }
     }
 
     async update(id: string, data: CreateUserDto) {
         await this.findById(id);
+
+        if (data.phone) {
+            const phoneExists = await this.prisma.user.findFirst({
+                where: {
+                    phone: data.phone,
+                    NOT: { id },
+                },
+            });
+            if (phoneExists) throw new ConflictException('Telefone já cadastrado');
+        }
+
         const hashedPassword = await bcrypt.hash(data.password, 10);
-        return this.prisma.user.update({
-            where: { id },
-            data: { ...data, password: hashedPassword },
-        });
+        try {
+            return this.prisma.user.update({
+                where: { id },
+                data: { ...data, password: hashedPassword },
+            });
+        } catch (error) {
+            this.handleUniqueConstraint(error);
+        }
     }
 
     deactivate(id: string) {
@@ -133,5 +160,25 @@ export class UsersService {
         });
 
         return { message: 'Senha redefinida com sucesso.' };
+    }
+
+    private handleUniqueConstraint(error: unknown): never {
+        if (
+            error instanceof PrismaClientKnownRequestError &&
+            error.code === 'P2002'
+        ) {
+            const target = error.meta?.target;
+            if (Array.isArray(target) && target.includes('phone')) {
+                throw new ConflictException('Telefone já cadastrado');
+            }
+
+            if (Array.isArray(target) && target.includes('email')) {
+                throw new ConflictException('Email já cadastrado');
+            }
+
+            throw new ConflictException('Usuário já cadastrado');
+        }
+
+        throw error;
     }
 }

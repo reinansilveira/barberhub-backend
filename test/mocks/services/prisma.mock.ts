@@ -2,7 +2,9 @@ export const makePrismaMock = () => {
   const mock = {
     user: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
     },
     client: {
       findUnique: jest.fn(),

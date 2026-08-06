@@ -13,6 +13,7 @@ export class AppointmentEvents {
     client: Client,
     professional: Professional & { user: User },
     serviceName: string,
+    initialPassword?: string,
   ) {
     return {
       appointmentId: appointment.id,
@@ -30,6 +31,7 @@ export class AppointmentEvents {
       scheduledAt: appointment.scheduledAt,
       duration: appointment.duration,   
       price: Number(appointment.price),
+      initialPassword,
     };
   }
 
