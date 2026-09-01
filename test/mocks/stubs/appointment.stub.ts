@@ -38,9 +38,9 @@ export const APPOINTMENT_RESPONSE_STUB = {
   cancelReason: null,
   client: {
     id: CLIENT_STUB.id,
-    name: CLIENT_STUB.name,
-    phone: CLIENT_STUB.phone,
-    email: CLIENT_STUB.email,
+    name: CLIENT_STUB.user.name,
+    phone: CLIENT_STUB.user.phone,
+    email: CLIENT_STUB.user.email,
   },
   professional: {
     id: PROFESSIONAL_STUB.id,

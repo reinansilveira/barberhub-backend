@@ -13,9 +13,16 @@ import { makeRedisMock } from '../../mocks/services/redis.mock';
 import { makeJwtMock } from '../../mocks/services/jwt.mock';
 import { makeNotificationMock } from '../../mocks/services/notification.mock';
 
-import { makeLoginDto, makeStartDto, makeVerifyCodeDto } from '../../mocks/factories/auth.factory';
+import {
+  makeLoginDto,
+  makeStartDto,
+  makeVerifyCodeDto,
+} from '../../mocks/factories/auth.factory';
 import { USER_STUB } from '../../mocks/stubs/user.stub';
-import { CLIENT_STUB, VERIFY_CODE_RESPONSE_STUB } from '../../mocks/stubs/client.stub';
+import {
+  CLIENT_STUB,
+  VERIFY_CODE_RESPONSE_STUB,
+} from '../../mocks/stubs/client.stub';
 import { TOKEN_PAIR_STUB } from '../../mocks/stubs/token.stub';
 
 jest.mock('bcrypt');
@@ -82,7 +89,10 @@ describe('AuthService', () => {
 
       await service.login(dto);
 
-      expect(bcryptMock.compare).toHaveBeenCalledWith(dto.password, USER_STUB.password);
+      expect(bcryptMock.compare).toHaveBeenCalledWith(
+        dto.password,
+        USER_STUB.password,
+      );
     });
 
     it('retorna access_token e refresh_token no caminho feliz', async () => {
@@ -109,29 +119,42 @@ describe('AuthService', () => {
     it('lança UnauthorizedException quando o usuário não existe', async () => {
       prismaMock.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.login(makeLoginDto())).rejects.toThrow(UnauthorizedException);
+      await expect(service.login(makeLoginDto())).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('lança UnauthorizedException quando o usuário está inativo', async () => {
-      prismaMock.user.findUnique.mockResolvedValue({ ...USER_STUB, active: false });
+      prismaMock.user.findUnique.mockResolvedValue({
+        ...USER_STUB,
+        active: false,
+      });
 
-      await expect(service.login(makeLoginDto())).rejects.toThrow(UnauthorizedException);
+      await expect(service.login(makeLoginDto())).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('lança UnauthorizedException quando a senha está errada', async () => {
       prismaMock.user.findUnique.mockResolvedValue(USER_STUB);
       bcryptMock.compare.mockResolvedValue(false as never);
 
-      await expect(service.login(makeLoginDto())).rejects.toThrow(UnauthorizedException);
+      await expect(service.login(makeLoginDto())).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('não vaza qual campo está errado na mensagem de erro (segurança)', async () => {
       prismaMock.user.findUnique.mockResolvedValue(null);
-      const errorWhenNoUser = await service.login(makeLoginDto()).catch(e => e);
+      const errorWhenNoUser = await service
+        .login(makeLoginDto())
+        .catch((e) => e);
 
       prismaMock.user.findUnique.mockResolvedValue(USER_STUB);
       bcryptMock.compare.mockResolvedValue(false as never);
-      const errorWhenWrongPass = await service.login(makeLoginDto()).catch(e => e);
+      const errorWhenWrongPass = await service
+        .login(makeLoginDto())
+        .catch((e) => e);
 
       expect(errorWhenNoUser.message).toBe(errorWhenWrongPass.message);
     });
@@ -156,10 +179,9 @@ describe('AuthService', () => {
 
       await service.refresh('some.refresh.token');
 
-      expect(jwtMock.verify).toHaveBeenCalledWith(
-        'some.refresh.token',
-        { secret: process.env.JWT_REFRESH_SECRET },
-      );
+      expect(jwtMock.verify).toHaveBeenCalledWith('some.refresh.token', {
+        secret: process.env.JWT_REFRESH_SECRET,
+      });
     });
 
     it('consulta o Redis com a chave composta por userId + hash do token', async () => {
@@ -194,24 +216,33 @@ describe('AuthService', () => {
       jwtMock.verify.mockReturnValue(PAYLOAD_STUB);
       redisMock.get.mockResolvedValue(null);
 
-      await expect(service.refresh('token.valido.mas.nao.no.redis')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        service.refresh('token.valido.mas.nao.no.redis'),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('lança UnauthorizedException quando o usuário foi desativado', async () => {
       jwtMock.verify.mockReturnValue(PAYLOAD_STUB);
       redisMock.get.mockResolvedValue('1');
       redisMock.del.mockResolvedValue(1);
-      prismaMock.user.findUnique.mockResolvedValue({ ...USER_STUB, active: false });
+      prismaMock.user.findUnique.mockResolvedValue({
+        ...USER_STUB,
+        active: false,
+      });
 
-      await expect(service.refresh('valid.token')).rejects.toThrow(UnauthorizedException);
+      await expect(service.refresh('valid.token')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('lança UnauthorizedException quando o JWT está malformado', async () => {
-      jwtMock.verify.mockImplementation(() => { throw new Error('jwt malformed'); });
+      jwtMock.verify.mockImplementation(() => {
+        throw new Error('jwt malformed');
+      });
 
-      await expect(service.refresh('token.lixo')).rejects.toThrow(UnauthorizedException);
+      await expect(service.refresh('token.lixo')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
@@ -224,10 +255,9 @@ describe('AuthService', () => {
 
       await service.validate('some.access.token');
 
-      expect(jwtMock.verify).toHaveBeenCalledWith(
-        'some.access.token',
-        { secret: process.env.JWT_SECRET },
-      );
+      expect(jwtMock.verify).toHaveBeenCalledWith('some.access.token', {
+        secret: process.env.JWT_SECRET,
+      });
     });
 
     it('retorna valid:true e dados do usuário para token legítimo', async () => {
@@ -246,26 +276,37 @@ describe('AuthService', () => {
       jwtMock.verify.mockReturnValue(PAYLOAD_STUB);
       prismaMock.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.validate('valid.token')).rejects.toThrow(UnauthorizedException);
+      await expect(service.validate('valid.token')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('lança UnauthorizedException quando o usuário foi desativado', async () => {
       jwtMock.verify.mockReturnValue(PAYLOAD_STUB);
-      prismaMock.user.findUnique.mockResolvedValue({ ...USER_STUB, active: false });
+      prismaMock.user.findUnique.mockResolvedValue({
+        ...USER_STUB,
+        active: false,
+      });
 
-      await expect(service.validate('valid.token')).rejects.toThrow(UnauthorizedException);
+      await expect(service.validate('valid.token')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('lança UnauthorizedException para token com assinatura inválida', async () => {
-      jwtMock.verify.mockImplementation(() => { throw new Error('invalid signature'); });
+      jwtMock.verify.mockImplementation(() => {
+        throw new Error('invalid signature');
+      });
 
-      await expect(service.validate('token.adulterado')).rejects.toThrow(UnauthorizedException);
+      await expect(service.validate('token.adulterado')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
   describe('start', () => {
     const setupHappyPath = () => {
-      prismaMock.client.findUnique.mockResolvedValue(CLIENT_STUB);
+      prismaMock.client.findFirst.mockResolvedValue(CLIENT_STUB);
       redisMock.incr.mockResolvedValue(1);
       redisMock.expire.mockResolvedValue(1);
       bcryptMock.hash.mockResolvedValue('$2b$10$otpHashAqui' as never);
@@ -279,8 +320,11 @@ describe('AuthService', () => {
 
       await service.start(dto);
 
-      expect(prismaMock.client.findUnique).toHaveBeenCalledWith({
-        where: { phone: dto.phone },
+      expect(prismaMock.client.findFirst).toHaveBeenCalledWith({
+        where: {
+          active: true,
+          user: { is: { phone: dto.phone, active: true } },
+        },
       });
     });
 
@@ -314,20 +358,27 @@ describe('AuthService', () => {
 
       const result = await service.start(makeStartDto());
 
-      expect(result).toEqual({ clientId: CLIENT_STUB.id, message: 'Código enviado' });
+      expect(result).toEqual({
+        clientId: CLIENT_STUB.id,
+        message: 'Código enviado',
+      });
     });
 
     it('lança BadRequestException quando o cliente não existe', async () => {
-      prismaMock.client.findUnique.mockResolvedValue(null);
+      prismaMock.client.findFirst.mockResolvedValue(null);
 
-      await expect(service.start(makeStartDto())).rejects.toThrow(BadRequestException);
+      await expect(service.start(makeStartDto())).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('lança UnauthorizedException após 3 tentativas de OTP no mesmo telefone', async () => {
-      prismaMock.client.findUnique.mockResolvedValue(CLIENT_STUB);
+      prismaMock.client.findFirst.mockResolvedValue(CLIENT_STUB);
       redisMock.incr.mockResolvedValue(4);
 
-      await expect(service.start(makeStartDto())).rejects.toThrow(UnauthorizedException);
+      await expect(service.start(makeStartDto())).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('define TTL de rate-limit de 15 minutos na primeira tentativa', async () => {
@@ -353,7 +404,10 @@ describe('AuthService', () => {
   });
 
   describe('verifyCode', () => {
-    const makeOtpPayload = (overrides?: { expiresAt?: number; code?: string }) =>
+    const makeOtpPayload = (overrides?: {
+      expiresAt?: number;
+      code?: string;
+    }) =>
       JSON.stringify({
         code: '$2b$10$otpHashAqui',
         expiresAt: Date.now() + 5 * 60 * 1000,
@@ -364,8 +418,11 @@ describe('AuthService', () => {
       redisMock.get.mockResolvedValue(makeOtpPayload());
       bcryptMock.compare.mockResolvedValue(true as never);
       redisMock.del.mockResolvedValue(1);
+      prismaMock.client.findFirst.mockResolvedValue(CLIENT_STUB);
       prismaMock.client.update.mockResolvedValue(CLIENT_STUB);
-      ClientMapperMock.toVerifyCodeResponse.mockReturnValue(VERIFY_CODE_RESPONSE_STUB);
+      ClientMapperMock.toVerifyCodeResponse.mockReturnValue(
+        VERIFY_CODE_RESPONSE_STUB,
+      );
     };
 
     it('busca o OTP no Redis pela chave do telefone', async () => {
@@ -383,7 +440,10 @@ describe('AuthService', () => {
 
       await service.verifyCode(dto);
 
-      expect(bcryptMock.compare).toHaveBeenCalledWith(dto.code, '$2b$10$otpHashAqui');
+      expect(bcryptMock.compare).toHaveBeenCalledWith(
+        dto.code,
+        '$2b$10$otpHashAqui',
+      );
     });
 
     it('deleta o OTP do Redis após verificação bem-sucedida (uso único)', async () => {
@@ -391,7 +451,9 @@ describe('AuthService', () => {
 
       await service.verifyCode(makeVerifyCodeDto());
 
-      expect(redisMock.del).toHaveBeenCalledWith(`otp:${makeVerifyCodeDto().phone}`);
+      expect(redisMock.del).toHaveBeenCalledWith(
+        `otp:${makeVerifyCodeDto().phone}`,
+      );
     });
 
     it('marca o telefone como verificado no banco (phoneVerifiedAt)', async () => {
@@ -400,8 +462,9 @@ describe('AuthService', () => {
       await service.verifyCode(makeVerifyCodeDto());
 
       expect(prismaMock.client.update).toHaveBeenCalledWith({
-        where: { phone: makeVerifyCodeDto().phone },
+        where: { id: CLIENT_STUB.id },
         data: { phoneVerifiedAt: expect.any(Date) },
+        include: { user: true },
       });
     });
 
@@ -416,20 +479,28 @@ describe('AuthService', () => {
     it('lança BadRequestException quando o OTP não existe no Redis', async () => {
       redisMock.get.mockResolvedValue(null);
 
-      await expect(service.verifyCode(makeVerifyCodeDto())).rejects.toThrow(BadRequestException);
+      await expect(service.verifyCode(makeVerifyCodeDto())).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('lança BadRequestException quando o OTP expirou pelo timestamp', async () => {
-      redisMock.get.mockResolvedValue(makeOtpPayload({ expiresAt: Date.now() - 1000 }));
+      redisMock.get.mockResolvedValue(
+        makeOtpPayload({ expiresAt: Date.now() - 1000 }),
+      );
 
-      await expect(service.verifyCode(makeVerifyCodeDto())).rejects.toThrow(BadRequestException);
+      await expect(service.verifyCode(makeVerifyCodeDto())).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('lança BadRequestException quando o código está incorreto', async () => {
       redisMock.get.mockResolvedValue(makeOtpPayload());
       bcryptMock.compare.mockResolvedValue(false as never);
 
-      await expect(service.verifyCode(makeVerifyCodeDto())).rejects.toThrow(BadRequestException);
+      await expect(service.verifyCode(makeVerifyCodeDto())).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('não deleta o OTP do Redis quando o código está incorreto', async () => {

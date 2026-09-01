@@ -1,264 +1,187 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
 
+import { AuthService } from '../../../src/modules/auth/auth.service';
 import { ClientService } from '../../../src/modules/clients/client.service';
 import { PrismaService } from '../../../src/shared/prisma/prisma.service';
-import { ClientCreateMapper } from '../../../src/modules/clients/mappers/client-create.mapper';
-
-import { makePrismaMock } from '../../mocks/services/prisma.mock';
 import { makeCreateClientDto } from '../../mocks/factories/client.factory';
+import { makePrismaMock } from '../../mocks/services/prisma.mock';
 import {
   CLIENT_COMPLETO_STUB,
   CLIENT_RESPONSE_STUB,
 } from '../../mocks/stubs/client.stub';
 
-jest.mock('../../../src/modules/client/mappers/client-create.mapper');
-const ClientCreateMapperMock = ClientCreateMapper as jest.Mocked<typeof ClientCreateMapper>;
-
 describe('ClientService', () => {
   let service: ClientService;
   let prismaMock: ReturnType<typeof makePrismaMock>;
 
+  const session = {
+    access_token: 'access-token',
+    refresh_token: 'refresh-token',
+    mustChangePassword: false,
+  };
+  const authMock = {
+    issueClientSession: jest.fn(),
+  };
+  const redisMock = {
+    get: jest.fn(),
+    set: jest.fn(),
+    del: jest.fn(),
+  };
+
   beforeEach(async () => {
     prismaMock = makePrismaMock();
+    authMock.issueClientSession.mockResolvedValue(session);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClientService,
         { provide: PrismaService, useValue: prismaMock },
+        { provide: AuthService, useValue: authMock },
+        { provide: 'REDIS', useValue: redisMock },
       ],
     }).compile();
 
     service = module.get(ClientService);
     jest.clearAllMocks();
+    authMock.issueClientSession.mockResolvedValue(session);
   });
 
-  it('deve ser instanciado corretamente', () => {
+  it('é instanciado corretamente', () => {
     expect(service).toBeDefined();
   });
 
   describe('findById', () => {
-    it('busca cliente ativo por padrão quando active não é informado', async () => {
+    it('busca o cliente ativo incluindo os dados do user', async () => {
       prismaMock.client.findFirst.mockResolvedValue(CLIENT_COMPLETO_STUB);
 
-      await service.findById('uuid-client-1');
+      const result = await service.findById(CLIENT_COMPLETO_STUB.id);
 
-      expect(prismaMock.client.findFirst).toHaveBeenCalledWith({
-        where: { id: 'uuid-client-1', active: true },
-      });
-    });
-
-    it('busca cliente ativo quando active é qualquer valor diferente de "false"', async () => {
-      prismaMock.client.findFirst.mockResolvedValue(CLIENT_COMPLETO_STUB);
-
-      await service.findById('uuid-client-1', 'true');
-
-      expect(prismaMock.client.findFirst).toHaveBeenCalledWith({
-        where: { id: 'uuid-client-1', active: true },
-      });
-    });
-
-    it('busca cliente inativo quando active é "false"', async () => {
-      prismaMock.client.findFirst.mockResolvedValue({
-        ...CLIENT_COMPLETO_STUB,
-        active: false,
-      });
-
-      await service.findById('uuid-client-1', 'false');
-
-      expect(prismaMock.client.findFirst).toHaveBeenCalledWith({
-        where: { id: 'uuid-client-1', active: false },
-      });
-    });
-
-    it('retorna o cliente encontrado', async () => {
-      prismaMock.client.findFirst.mockResolvedValue(CLIENT_COMPLETO_STUB);
-
-      const result = await service.findById('uuid-client-1');
-
-      expect(result).toEqual(CLIENT_COMPLETO_STUB);
+      expect(prismaMock.client.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: CLIENT_COMPLETO_STUB.id, active: true },
+          include: expect.objectContaining({ user: expect.any(Object) }),
+        }),
+      );
+      expect(result).toEqual(CLIENT_RESPONSE_STUB);
     });
 
     it('retorna null quando o cliente não existe', async () => {
       prismaMock.client.findFirst.mockResolvedValue(null);
 
-      const result = await service.findById('id-inexistente');
-
-      expect(result).toBeNull();
+      await expect(service.findById('id-inexistente')).resolves.toBeNull();
     });
   });
 
   describe('create', () => {
     const setupHappyPath = () => {
-      prismaMock.client.findFirst.mockResolvedValue(null);
+      prismaMock.user.findFirst.mockResolvedValue(null);
+      prismaMock.user.create.mockResolvedValue(CLIENT_COMPLETO_STUB.user);
       prismaMock.client.create.mockResolvedValue(CLIENT_COMPLETO_STUB);
-      ClientCreateMapperMock.toResponse.mockReturnValue(CLIENT_RESPONSE_STUB);
     };
 
-    it('verifica se o telefone já existe antes de criar', async () => {
+    it('cria primeiro o user e vincula o client pelo userId', async () => {
       setupHappyPath();
       const dto = makeCreateClientDto();
 
       await service.create(dto);
 
-      expect(prismaMock.client.findFirst).toHaveBeenCalledWith({
-        where: { phone: dto.phone },
+      expect(prismaMock.user.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          name: dto.name,
+          email: dto.email,
+          phone: dto.phone,
+          password: null,
+          role: 'CLIENT',
+        }),
       });
+      expect(prismaMock.client.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: {
+            userId: CLIENT_COMPLETO_STUB.user.id,
+            phoneVerifiedAt: null,
+          },
+        }),
+      );
     });
 
-    it('cria o cliente com os dados do DTO e phoneVerifiedAt nulo', async () => {
-      setupHappyPath();
-      const dto = makeCreateClientDto();
-
-      await service.create(dto);
-
-      expect(prismaMock.client.create).toHaveBeenCalledWith({
-        data: { ...dto, phoneVerifiedAt: null },
-      });
-    });
-
-    it('retorna os dados mapeados pelo ClientCreateMapper', async () => {
+    it('retorna userId e a sessão do cliente', async () => {
       setupHappyPath();
 
       const result = await service.create(makeCreateClientDto());
 
-      expect(result).toEqual(CLIENT_RESPONSE_STUB);
+      expect(result).toEqual({ ...CLIENT_RESPONSE_STUB, ...session });
+      expect(authMock.issueClientSession).toHaveBeenCalledWith(
+        CLIENT_COMPLETO_STUB.id,
+      );
     });
 
-    it('passa o cliente criado para o mapper', async () => {
-      setupHappyPath();
-
-      await service.create(makeCreateClientDto());
-
-      expect(ClientCreateMapperMock.toResponse).toHaveBeenCalledWith(CLIENT_COMPLETO_STUB);
-    });
-
-    it('lança ConflictException quando o telefone já está cadastrado', async () => {
-      prismaMock.client.findFirst.mockResolvedValue(CLIENT_COMPLETO_STUB);
+    it('não cria registros quando telefone ou email já pertencem a um user', async () => {
+      prismaMock.user.findFirst.mockResolvedValue(CLIENT_COMPLETO_STUB.user);
 
       await expect(service.create(makeCreateClientDto())).rejects.toThrow(
         ConflictException,
       );
-    });
-
-    it('não cria o cliente quando o telefone já existe', async () => {
-      prismaMock.client.findFirst.mockResolvedValue(CLIENT_COMPLETO_STUB);
-
-      await service.create(makeCreateClientDto()).catch(() => {});
-
+      expect(prismaMock.user.create).not.toHaveBeenCalled();
       expect(prismaMock.client.create).not.toHaveBeenCalled();
-    });
-
-    it('lança ConflictException com telefone de formato diferente mas já cadastrado', async () => {
-      prismaMock.client.findFirst.mockResolvedValue(CLIENT_COMPLETO_STUB);
-
-      await expect(
-        service.create(makeCreateClientDto({ phone: '+5579999999999' })),
-      ).rejects.toThrow(ConflictException);
     });
   });
 
   describe('update', () => {
-    const setupHappyPath = () => {
+    it('atualiza os dados pessoais no user e mantém o client enxuto', async () => {
       prismaMock.client.findUnique.mockResolvedValue(CLIENT_COMPLETO_STUB);
-      prismaMock.client.update.mockResolvedValue({
-        ...CLIENT_COMPLETO_STUB,
-        name: 'João Atualizado',
-      });
-    };
-
-    it('busca o cliente pelo id antes de atualizar', async () => {
-      setupHappyPath();
-
-      await service.update('uuid-client-1', makeCreateClientDto());
-
-      expect(prismaMock.client.findUnique).toHaveBeenCalledWith({
-        where: { id: 'uuid-client-1' },
-      });
-    });
-
-    it('atualiza o cliente com os dados corretos', async () => {
-      setupHappyPath();
+      prismaMock.user.findFirst.mockResolvedValue(null);
+      prismaMock.user.update.mockResolvedValue(CLIENT_COMPLETO_STUB.user);
       const dto = makeCreateClientDto({ name: 'João Atualizado' });
 
-      await service.update('uuid-client-1', dto);
+      const result = await service.update(CLIENT_COMPLETO_STUB.id, dto);
 
-      expect(prismaMock.client.update).toHaveBeenCalledWith({
-        where: { id: 'uuid-client-1' },
-        data: dto,
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: CLIENT_COMPLETO_STUB.userId },
+        data: {
+          name: dto.name,
+          email: dto.email,
+          phone: dto.phone,
+        },
       });
+      expect(result).toEqual(CLIENT_RESPONSE_STUB);
     });
 
-    it('retorna o cliente atualizado', async () => {
-      setupHappyPath();
-      const clienteAtualizado = { ...CLIENT_COMPLETO_STUB, name: 'João Atualizado' };
-      prismaMock.client.update.mockResolvedValue(clienteAtualizado);
-
-      const result = await service.update('uuid-client-1', makeCreateClientDto());
-
-      expect(result).toEqual(clienteAtualizado);
-    });
-
-    it('lança BadRequestException quando o cliente não existe', async () => {
+    it('lança erro quando o cliente não existe', async () => {
       prismaMock.client.findUnique.mockResolvedValue(null);
 
       await expect(
         service.update('id-inexistente', makeCreateClientDto()),
       ).rejects.toThrow(BadRequestException);
-    });
-
-    it('não chama update quando o cliente não existe', async () => {
-      prismaMock.client.findUnique.mockResolvedValue(null);
-
-      await service.update('id-inexistente', makeCreateClientDto()).catch(() => {});
-
-      expect(prismaMock.client.update).not.toHaveBeenCalled();
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
     });
   });
 
   describe('desactivate', () => {
-    it('desativa o cliente definindo active como false', async () => {
+    it('desativa o user e o client', async () => {
+      prismaMock.client.findUnique.mockResolvedValue(CLIENT_COMPLETO_STUB);
+      prismaMock.user.update.mockResolvedValue({
+        ...CLIENT_COMPLETO_STUB.user,
+        active: false,
+      });
       prismaMock.client.update.mockResolvedValue({
         ...CLIENT_COMPLETO_STUB,
         active: false,
-        reengagementSentAt: null,
       });
 
-      await service.desactivate('uuid-client-1');
+      const result = await service.desactivate(CLIENT_COMPLETO_STUB.id);
 
-      expect(prismaMock.client.update).toHaveBeenCalledWith({
-        where: { id: 'uuid-client-1' },
-        data: { active: false, reengagementSentAt: null },
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: CLIENT_COMPLETO_STUB.userId },
+        data: { active: false },
       });
-    });
-
-    it('zera o reengagementSentAt ao desativar', async () => {
-      prismaMock.client.update.mockResolvedValue({
-        ...CLIENT_COMPLETO_STUB,
-        active: false,
-        reengagementSentAt: null,
-      });
-
-      await service.desactivate('uuid-client-1');
-
       expect(prismaMock.client.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ reengagementSentAt: null }),
+          where: { id: CLIENT_COMPLETO_STUB.id },
+          data: { active: false, reengagementSentAt: null },
         }),
       );
-    });
-
-    it('retorna o cliente desativado', async () => {
-      const clienteDesativado = {
-        ...CLIENT_COMPLETO_STUB,
-        active: false,
-        reengagementSentAt: null,
-      };
-      prismaMock.client.update.mockResolvedValue(clienteDesativado);
-
-      const result = await service.desactivate('uuid-client-1');
-
-      expect(result).toEqual(clienteDesativado);
+      expect(result.active).toBe(false);
     });
   });
 });

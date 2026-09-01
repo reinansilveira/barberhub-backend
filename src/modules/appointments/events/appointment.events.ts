@@ -1,7 +1,13 @@
-import { Appointment, Client, Professional, Service, User } from '@prisma/client';
+import {
+  Appointment,
+  Client,
+  Professional,
+  Service,
+  User,
+} from '@prisma/client';
 
 type AppointmentWithRelations = Appointment & {
-  client: Client;
+  client: Client & { user: User };
   professional: Professional & { user: User };
   service: Service;
   customPrice?: any;
@@ -10,7 +16,7 @@ type AppointmentWithRelations = Appointment & {
 export class AppointmentEvents {
   static createdPayload(
     appointment: Appointment & { price: any },
-    client: Client,
+    client: Client & { user: User },
     professional: Professional & { user: User },
     serviceName: string,
     initialPassword?: string,
@@ -19,9 +25,9 @@ export class AppointmentEvents {
       appointmentId: appointment.id,
 
       clientId: client.id,
-      clientName: client.name,
-      clientPhone: client.phone,
-      clientEmail: client.email!,
+      clientName: client.user.name,
+      clientPhone: client.user.phone ?? '',
+      clientEmail: client.user.email ?? '',
 
       professionalId: professional.id,
       professionalName: professional.user.name,
@@ -29,21 +35,24 @@ export class AppointmentEvents {
       professionalEmail: professional.user.email!,
       serviceName,
       scheduledAt: appointment.scheduledAt,
-      duration: appointment.duration,   
+      duration: appointment.duration,
       price: Number(appointment.price),
       initialPassword,
     };
   }
 
-  static cancelledPayload(appointment: AppointmentWithRelations, cancelReason: string) {
+  static cancelledPayload(
+    appointment: AppointmentWithRelations,
+    cancelReason: string,
+  ) {
     return {
       appointmentId: appointment.id,
       cancelReason,
 
       clientId: appointment.client.id,
-      clientName: appointment.client.name,
-      clientPhone: appointment.client.phone,
-      clientEmail: appointment.client.email!,
+      clientName: appointment.client.user.name,
+      clientPhone: appointment.client.user.phone ?? '',
+      clientEmail: appointment.client.user.email ?? '',
 
       professionalId: appointment.professional.id,
       professionalName: appointment.professional.user.name,

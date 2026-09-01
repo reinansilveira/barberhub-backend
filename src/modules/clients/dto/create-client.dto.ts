@@ -3,6 +3,7 @@ import {
   IsString,
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   Matches,
 } from 'class-validator';
 
@@ -30,6 +31,7 @@ export class CreateClientDto {
     example: 'joao@email.com',
     description: 'Email válido (opcional)',
   })
+  @IsOptional()
   @IsEmail({}, { message: 'O campo [email] deve ser um email válido.' })
   email?: string;
 }

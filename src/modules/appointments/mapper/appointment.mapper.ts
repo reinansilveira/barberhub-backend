@@ -1,4 +1,10 @@
-import { Appointment, Client, Professional, Service, User } from '@prisma/client';
+import {
+  Appointment,
+  Client,
+  Professional,
+  Service,
+  User,
+} from '@prisma/client';
 import {
   AppointmentResponseDto,
   AppointmentClientDto,
@@ -7,13 +13,15 @@ import {
 } from '../dto/appointment-response.dto';
 
 export type AppointmentWithRelations = Appointment & {
-  client: Client;
+  client: Client & { user: User };
   professional: Professional & { user: User };
   service: Service;
 };
 
 export class AppointmentMapper {
-  static toResponse(appointment: AppointmentWithRelations): AppointmentResponseDto {
+  static toResponse(
+    appointment: AppointmentWithRelations,
+  ): AppointmentResponseDto {
     return {
       id: appointment.id,
       scheduledAt: appointment.scheduledAt,
@@ -23,21 +31,27 @@ export class AppointmentMapper {
       notes: appointment.notes,
       cancelReason: appointment.cancelReason,
       client: AppointmentMapper.toClientDto(appointment.client),
-      professional: AppointmentMapper.toProfessionalDto(appointment.professional),
+      professional: AppointmentMapper.toProfessionalDto(
+        appointment.professional,
+      ),
       service: AppointmentMapper.toServiceDto(appointment.service),
     };
   }
 
-  static toResponseList(appointments: AppointmentWithRelations[]): AppointmentResponseDto[] {
+  static toResponseList(
+    appointments: AppointmentWithRelations[],
+  ): AppointmentResponseDto[] {
     return appointments.map(AppointmentMapper.toResponse);
   }
 
-  private static toClientDto(client: Client): AppointmentClientDto {
+  private static toClientDto(
+    client: Client & { user: User },
+  ): AppointmentClientDto {
     return {
       id: client.id,
-      name: client.name,
-      phone: client.phone,
-      email: client.email,
+      name: client.user.name,
+      phone: client.user.phone ?? '',
+      email: client.user.email ?? '',
     };
   }
 

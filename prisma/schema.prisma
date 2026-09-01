@@ -84,20 +84,24 @@ model RefreshToken {
 
 model User {
   id            String    @id @default(uuid())
-  email         String    @unique
-  password      String
+  email         String?   @unique
+  password      String?
   name          String
   phone         String?   @unique
   avatar        String?
+  gender        Gender?
   role          UserRole  @default(CLIENT)
   active        Boolean   @default(true)
   emailVerified Boolean   @default(false)
+  mustChangePassword Boolean @default(false)
+  passwordSetAt DateTime?
   lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   resetCode        String?
   resetCodeExpires DateTime?
 
+  client              Client?
   professional      Professional?
   appointmentsCreated Appointment[]  @relation("AppointmentCreator")
   refreshTokens RefreshToken[] 
@@ -109,25 +113,10 @@ model User {
 
 model Client {
   id          String    @id @default(uuid())
-  name        String
-  email       String?
-  phone       String?    @unique
-
-  password         String?
-  passwordSetAt    DateTime?
-  mustChangePassword Boolean @default(true)
+  userId      String    @unique
 
   phoneVerifiedAt DateTime?   
   emailVerifiedAt DateTime?   
-
-  cpf         String?   @unique
-  birthDate   DateTime?
-  gender      Gender?
-  avatar      String?
-  address     String?
-  city        String?
-  state       String?
-  zipCode     String?
 
   reengagementSentAt DateTime?
   notes       String?   @db.Text
@@ -135,11 +124,10 @@ model Client {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   appointments Appointment[]
   reviews      Review[]
 
-  @@index([phone])
-  @@index([email])
   @@index([active])
 
   @@map("clients")

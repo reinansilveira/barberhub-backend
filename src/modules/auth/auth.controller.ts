@@ -1,5 +1,5 @@
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -14,12 +14,14 @@ import { Public } from './decorators/public.decorator';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Autenticar usuário e retornar access + refresh token' })
+  @ApiOperation({
+    summary: 'Autenticar usuário e retornar access + refresh token',
+  })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }
@@ -27,7 +29,9 @@ export class AuthController {
   @Public()
   @Post('client/login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Autenticar cliente e retornar access + refresh token' })
+  @ApiOperation({
+    summary: 'Autenticar cliente e retornar access + refresh token',
+  })
   loginClient(@Body() dto: LoginDto) {
     return this.authService.loginClient(dto);
   }
@@ -45,7 +49,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Redefinir senha do cliente com código temporário' })
   resetClientPassword(@Body() dto: ResetClientPasswordDto) {
-    return this.authService.resetClientPassword(dto.email, dto.code, dto.newPassword);
+    return this.authService.resetClientPassword(
+      dto.email,
+      dto.code,
+      dto.newPassword,
+    );
   }
 
   @Public()

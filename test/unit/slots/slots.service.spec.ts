@@ -9,7 +9,10 @@ import { SlotsService } from '../../../src/modules/slots/slots.service';
 import { PrismaService } from '../../../src/shared/prisma/prisma.service';
 
 import { makePrismaMock } from '../../mocks/services/prisma.mock';
-import { makeCreateSlotDto, makeCreateSlotBatchDto } from '../../mocks/factories/slot.factory';
+import {
+  makeCreateSlotDto,
+  makeCreateSlotBatchDto,
+} from '../../mocks/factories/slot.factory';
 import {
   SLOT_DISPONIVEL_STUB,
   SLOT_OCUPADO_STUB,
@@ -62,11 +65,20 @@ describe('SlotsService', () => {
       prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create
-        .mockResolvedValueOnce({ id: 'uuid-slot-1', startsAt: new Date('2024-06-01T10:00:00Z') })
-        .mockResolvedValueOnce({ id: 'uuid-slot-2', startsAt: new Date('2024-06-01T11:00:00Z') })
-        .mockResolvedValueOnce({ id: 'uuid-slot-3', startsAt: new Date('2024-06-01T12:00:00Z') });
+        .mockResolvedValueOnce({
+          id: 'uuid-slot-1',
+          startsAt: new Date('2024-06-01T10:00:00Z'),
+        })
+        .mockResolvedValueOnce({
+          id: 'uuid-slot-2',
+          startsAt: new Date('2024-06-01T11:00:00Z'),
+        })
+        .mockResolvedValueOnce({
+          id: 'uuid-slot-3',
+          startsAt: new Date('2024-06-01T12:00:00Z'),
+        });
 
-      const result = await service.create(makeCreateSlotBatchDto()) as any;
+      const result = (await service.create(makeCreateSlotBatchDto())) as any;
 
       expect(result).toHaveProperty('created');
       expect(result).toHaveProperty('skipped');
@@ -78,14 +90,20 @@ describe('SlotsService', () => {
       prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create
-        .mockResolvedValueOnce({ id: 'uuid-slot-1', startsAt: new Date('2024-06-01T10:00:00Z') })
-        .mockResolvedValueOnce({ id: 'uuid-slot-2', startsAt: new Date('2024-06-01T11:00:00Z') });
+        .mockResolvedValueOnce({
+          id: 'uuid-slot-1',
+          startsAt: new Date('2024-06-01T10:00:00Z'),
+        })
+        .mockResolvedValueOnce({
+          id: 'uuid-slot-2',
+          startsAt: new Date('2024-06-01T11:00:00Z'),
+        });
 
-      const result = await service.create({
+      const result = (await service.create({
         professionalId: 'uuid-prof-1',
         startsAt: '2024-06-01T09:00:00Z',
         slots: ['2024-06-01T10:00:00Z', '2024-06-01T11:00:00Z'],
-      }) as any;
+      })) as any;
 
       expect(result).toHaveProperty('created');
       expect(result.created).toHaveLength(2);
@@ -171,24 +189,31 @@ describe('SlotsService', () => {
     });
   });
 
-
   describe('createMany', () => {
     it('cria todos os slots quando todos são válidos', async () => {
       prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create
-        .mockResolvedValueOnce({ id: 'uuid-slot-1', startsAt: new Date('2024-06-01T10:00:00Z') })
-        .mockResolvedValueOnce({ id: 'uuid-slot-2', startsAt: new Date('2024-06-01T11:00:00Z') })
-        .mockResolvedValueOnce({ id: 'uuid-slot-3', startsAt: new Date('2024-06-01T12:00:00Z') });
+        .mockResolvedValueOnce({
+          id: 'uuid-slot-1',
+          startsAt: new Date('2024-06-01T10:00:00Z'),
+        })
+        .mockResolvedValueOnce({
+          id: 'uuid-slot-2',
+          startsAt: new Date('2024-06-01T11:00:00Z'),
+        })
+        .mockResolvedValueOnce({
+          id: 'uuid-slot-3',
+          startsAt: new Date('2024-06-01T12:00:00Z'),
+        });
 
-      const result = await service.create(makeCreateSlotBatchDto()) as any;
+      const result = (await service.create(makeCreateSlotBatchDto())) as any;
 
       expect(result.created).toHaveLength(3);
       expect(result.skipped).toHaveLength(0);
     });
 
     it('coloca no skipped os slots que falharem sem parar o batch', async () => {
-
       prismaMock.schedule.findFirst
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(SCHEDULE_STUB)
@@ -203,7 +228,7 @@ describe('SlotsService', () => {
         startsAt: new Date('2024-06-01T12:00:00Z'),
       });
 
-      const result = await service.create(makeCreateSlotBatchDto()) as any;
+      const result = (await service.create(makeCreateSlotBatchDto())) as any;
 
       expect(result.created).toHaveLength(1);
       expect(result.skipped).toHaveLength(2);
@@ -214,9 +239,11 @@ describe('SlotsService', () => {
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create.mockResolvedValue(SLOT_RESULT_STUB);
 
-      const result = await service.create(
-        makeCreateSlotBatchDto({ slots: ['2024-06-01T10:00:00Z'] }),
-      ) as any;
+      const result = (await service.create(
+        makeCreateSlotBatchDto({
+          slots: ['2024-06-01T10:00:00Z', '2024-06-01T11:00:00Z'],
+        }),
+      )) as any;
 
       expect(result.skipped[0]).toEqual({
         startsAt: '2024-06-01T10:00:00Z',
@@ -225,26 +252,30 @@ describe('SlotsService', () => {
     });
 
     it('registra "Erro desconhecido" para erros que não são HttpException', async () => {
-      prismaMock.schedule.findFirst.mockRejectedValue(new Error('DB connection lost'));
+      prismaMock.schedule.findFirst.mockRejectedValue(
+        new Error('DB connection lost'),
+      );
 
-      const result = await service.create(
-        makeCreateSlotBatchDto({ slots: ['2024-06-01T10:00:00Z'] }),
-      ) as any;
+      const result = (await service.create(
+        makeCreateSlotBatchDto({
+          slots: ['2024-06-01T10:00:00Z', '2024-06-01T11:00:00Z'],
+        }),
+      )) as any;
 
       expect(result.skipped[0].reason).toBe('Erro desconhecido');
     });
 
-    it('retorna created e skipped vazios quando slots é array vazio', async () => {
-      const result = await service.create({
-        professionalId: 'uuid-prof-1',
-        slots: ['2024-06-01T10:00:00Z'],
-      }) as any;
-
+    it('retorna o slot criado quando recebe apenas um horário', async () => {
       prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create.mockResolvedValue(SLOT_RESULT_STUB);
 
-      expect(result).toBeDefined();
+      const result = (await service.create({
+        professionalId: 'uuid-prof-1',
+        slots: ['2024-06-01T10:00:00Z'],
+      })) as any;
+
+      expect(result).toEqual(SLOT_RESULT_STUB);
     });
   });
 

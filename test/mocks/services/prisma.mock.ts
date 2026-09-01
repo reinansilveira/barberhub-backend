@@ -1,13 +1,16 @@
 export const makePrismaMock = () => {
   const mock = {
     user: {
+      findMany: jest.fn(),
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
     client: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
     },
     appointment: {
@@ -17,10 +20,16 @@ export const makePrismaMock = () => {
       update: jest.fn(),
     },
     professional: {
+      findMany: jest.fn(),
       findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
     },
     professionalService: {
+      findMany: jest.fn(),
       findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
     },
     service: {
       findMany: jest.fn(),
@@ -46,6 +55,12 @@ export const makePrismaMock = () => {
       update: jest.fn(),
     },
     review: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    notification: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),

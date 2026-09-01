@@ -3,7 +3,6 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { AppointmentProducer } from './appointment.producer';
 
-
 @Injectable()
 export class ReminderScheduler {
   private readonly logger = new Logger(ReminderScheduler.name);
@@ -11,7 +10,7 @@ export class ReminderScheduler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly producer: AppointmentProducer,
-  ) { }
+  ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_10AM)
   async sendReengagementMessages() {
@@ -23,19 +22,19 @@ export class ReminderScheduler {
         appointments: {
           every: { scheduledAt: { lte: thirtyOneDaysAgo } },
           some: { scheduledAt: { lte: thirtyOneDaysAgo } },
-
         },
         OR: [
           { reengagementSentAt: null },
           { reengagementSentAt: { lte: thirtyOneDaysAgo } },
         ],
       },
+      include: { user: true },
     });
 
     this.logger.log(`Clientes inativos encontrados: ${inactiveClients.length}`);
 
     for (const client of inactiveClients) {
-      if (!client.phone) continue;
+      if (!client.user.phone) continue;
 
       await this.prisma.client.update({
         where: { id: client.id },
@@ -44,9 +43,9 @@ export class ReminderScheduler {
 
       await this.producer.publishReengagement({
         clientId: client.id,
-        clientName: client.name,
-        clientPhone: client.phone,
-        clientEmail: client.email ?? undefined,
+        clientName: client.user.name,
+        clientPhone: client.user.phone,
+        clientEmail: client.user.email ?? undefined,
       });
 
       this.logger.log(`Reengajamento enviado para cliente ${client.id}`);
@@ -65,7 +64,7 @@ export class ReminderScheduler {
         scheduledAt: { gte: now, lte: in25h },
       },
       include: {
-        client: true,
+        client: { include: { user: true } },
         professional: { include: { user: true } },
         service: true,
       },
@@ -74,8 +73,8 @@ export class ReminderScheduler {
     for (const apt of appointments) {
       await this.producer.publishReminder({
         appointmentId: apt.id,
-        clientPhone: apt.client.phone,
-        clientEmail: apt.client.email ?? undefined,
+        clientPhone: apt.client.user.phone,
+        clientEmail: apt.client.user.email ?? undefined,
         serviceName: apt.service.name,
         professionalName: apt.professional.user.name,
         scheduledAt: apt.scheduledAt,

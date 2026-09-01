@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { PrismaService } from '../../shared/prisma/prisma.service';
+import { PrismaService } from '../../../shared/prisma/prisma.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -15,13 +15,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; email?: string; accountType?: 'USER' | 'CLIENT' }) {
+  async validate(payload: {
+    sub: string;
+    email?: string;
+    accountType?: 'USER' | 'CLIENT';
+  }) {
     if (payload.accountType === 'CLIENT') {
-      const client = await this.prisma.client.findUnique({ where: { id: payload.sub } });
-      if (!client || !client.active) {
+      const client = await this.prisma.client.findUnique({
+        where: { id: payload.sub },
+        include: { user: true },
+      });
+      if (!client || !client.active || !client.user.active) {
         throw new UnauthorizedException('Cliente inativo ou não encontrado');
       }
-      return { id: client.id, email: client.email, accountType: 'CLIENT' };
+      return { id: client.id, email: client.user.email, accountType: 'CLIENT' };
     }
 
     const user = await this.prisma.user.findUnique({
