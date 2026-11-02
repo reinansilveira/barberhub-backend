@@ -50,7 +50,7 @@ describe('SlotsService', () => {
     });
 
     it('cria um único slot quando startsAt é informado sem slots', async () => {
-      prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
+      prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create.mockResolvedValue(SLOT_RESULT_STUB);
 
@@ -62,7 +62,7 @@ describe('SlotsService', () => {
     });
 
     it('cria em batch quando slots é informado com múltiplos horários', async () => {
-      prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
+      prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create
         .mockResolvedValueOnce({
@@ -87,7 +87,7 @@ describe('SlotsService', () => {
     });
 
     it('usa slots quando ambos startsAt e slots são informados', async () => {
-      prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
+      prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create
         .mockResolvedValueOnce({
@@ -112,7 +112,7 @@ describe('SlotsService', () => {
 
   describe('createOne', () => {
     const setupHappyPath = () => {
-      prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
+      prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create.mockResolvedValue(SLOT_RESULT_STUB);
     };
@@ -123,13 +123,13 @@ describe('SlotsService', () => {
 
       await service.create(dto);
 
-      expect(prismaMock.schedule.findFirst).toHaveBeenCalledWith({
+      expect(prismaMock.schedule.findMany).toHaveBeenCalledWith({
         where: {
           professionalId: dto.professionalId,
           active: true,
           OR: [
             { dayOfWeek: expect.any(Number), date: null },
-            { date: expect.any(Date) },
+            { date: { gte: expect.any(Date), lt: expect.any(Date) } },
           ],
         },
       });
@@ -163,7 +163,7 @@ describe('SlotsService', () => {
     });
 
     it('lança BadRequestException quando o profissional não trabalha neste dia', async () => {
-      prismaMock.schedule.findFirst.mockResolvedValue(null);
+      prismaMock.schedule.findMany.mockResolvedValue([]);
 
       await expect(service.create(makeCreateSlotDto())).rejects.toThrow(
         BadRequestException,
@@ -171,7 +171,7 @@ describe('SlotsService', () => {
     });
 
     it('lança ConflictException quando já existe slot neste horário', async () => {
-      prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
+      prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
       prismaMock.timeSlot.findUnique.mockResolvedValue(SLOT_DISPONIVEL_STUB);
 
       await expect(service.create(makeCreateSlotDto())).rejects.toThrow(
@@ -180,7 +180,7 @@ describe('SlotsService', () => {
     });
 
     it('não cria o slot quando já existe conflito de horário', async () => {
-      prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
+      prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
       prismaMock.timeSlot.findUnique.mockResolvedValue(SLOT_DISPONIVEL_STUB);
 
       await service.create(makeCreateSlotDto()).catch(() => {});
@@ -191,7 +191,7 @@ describe('SlotsService', () => {
 
   describe('createMany', () => {
     it('cria todos os slots quando todos são válidos', async () => {
-      prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
+      prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create
         .mockResolvedValueOnce({
@@ -214,10 +214,10 @@ describe('SlotsService', () => {
     });
 
     it('coloca no skipped os slots que falharem sem parar o batch', async () => {
-      prismaMock.schedule.findFirst
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(SCHEDULE_STUB)
-        .mockResolvedValueOnce(SCHEDULE_STUB);
+      prismaMock.schedule.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([SCHEDULE_STUB])
+        .mockResolvedValueOnce([SCHEDULE_STUB]);
 
       prismaMock.timeSlot.findUnique
         .mockResolvedValueOnce(SLOT_DISPONIVEL_STUB)
@@ -235,7 +235,7 @@ describe('SlotsService', () => {
     });
 
     it('registra a mensagem de erro correta no skipped', async () => {
-      prismaMock.schedule.findFirst.mockResolvedValue(null);
+      prismaMock.schedule.findMany.mockResolvedValue([]);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create.mockResolvedValue(SLOT_RESULT_STUB);
 
@@ -247,12 +247,12 @@ describe('SlotsService', () => {
 
       expect(result.skipped[0]).toEqual({
         startsAt: '2024-06-01T10:00:00Z',
-        reason: 'Profissional não trabalha neste dia',
+        reason: 'Horário fora do expediente ou intervalo do profissional',
       });
     });
 
     it('registra "Erro desconhecido" para erros que não são HttpException', async () => {
-      prismaMock.schedule.findFirst.mockRejectedValue(
+      prismaMock.schedule.findMany.mockRejectedValue(
         new Error('DB connection lost'),
       );
 
@@ -266,7 +266,7 @@ describe('SlotsService', () => {
     });
 
     it('retorna o slot criado quando recebe apenas um horário', async () => {
-      prismaMock.schedule.findFirst.mockResolvedValue(SCHEDULE_STUB);
+      prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
       prismaMock.timeSlot.findUnique.mockResolvedValue(null);
       prismaMock.timeSlot.create.mockResolvedValue(SLOT_RESULT_STUB);
 

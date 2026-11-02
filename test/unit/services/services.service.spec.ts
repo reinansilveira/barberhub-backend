@@ -144,14 +144,15 @@ describe('Services', () => {
       });
     });
 
-    it('usa duration 0 como fallback quando não é informado', async () => {
-      prismaMock.service.create.mockResolvedValue(SERVICE_STUB);
+    it('rejeita duração ausente ou igual a zero', async () => {
+      await expect(
+        service.create(makeCreateServiceDto({ duration: undefined })),
+      ).rejects.toThrow(BadRequestException);
 
-      await service.create(makeCreateServiceDto({ duration: undefined }));
-
-      expect(prismaMock.service.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ duration: 0 }),
-      });
+      await expect(
+        service.create(makeCreateServiceDto({ duration: 0 })),
+      ).rejects.toThrow('A duração do serviço deve ser maior que zero');
+      expect(prismaMock.service.create).not.toHaveBeenCalled();
     });
 
     it('retorna o serviço criado', async () => {

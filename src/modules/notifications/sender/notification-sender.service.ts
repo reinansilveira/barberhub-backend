@@ -11,16 +11,20 @@ export class NotificationSenderService {
 
   async sendWhatsApp(phone: string, message: string): Promise<void> {
     try {
+      const normalizedPhone = phone.replace(/\D/g, '');
+      const recipient = normalizedPhone.startsWith('55')
+        ? normalizedPhone
+        : `55${normalizedPhone}`;
       const response = await fetch(
         `${this.evolutionUrl}/message/sendText/${this.evolutionInstance}`,
         {
           method: 'POST',
           headers: {
             'apikey': this.evolutionKey,
-            'Content-Type': 'application/json',
+          'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            number: `55${phone}`,
+            number: recipient,
             text: message,
           }),
         },
@@ -31,6 +35,7 @@ export class NotificationSenderService {
       this.logger.log(`✅ WhatsApp enviado para ${phone}`);
     } catch (err) {
       this.logger.error('❌ Erro ao enviar WhatsApp: ', err);
+      throw err;
     }
   }
 
@@ -45,7 +50,7 @@ export class NotificationSenderService {
 
     if (error) {
       this.logger.error('❌ Erro ao enviar email: ', error);
-      return;
+      throw new Error(error.message);
     }
 
     this.logger.log('✅ Email enviado com sucesso!');

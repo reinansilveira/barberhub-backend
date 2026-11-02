@@ -4,7 +4,7 @@ import {
   ConflictException,
   Inject,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import Redis from 'ioredis';
@@ -37,7 +37,10 @@ export class ClientService {
   }): Promise<ClientWithUser> {
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
-        data: UserCreateMapper.fromClientParams(params),
+        data: {
+          ...UserCreateMapper.fromClientParams(params),
+          roleAssignments: { create: { role: UserRole.CLIENT } },
+        },
       });
 
       return tx.client.create({
@@ -57,10 +60,13 @@ export class ClientService {
 
     if (!existingUser) {
       return this.prisma.user.create({
-        data: UserCreateMapper.fromGoogleUser(
-          googleUser,
-          this.buildClientName(googleUser) || googleUser.email!,
-        ),
+        data: {
+          ...UserCreateMapper.fromGoogleUser(
+            googleUser,
+            this.buildClientName(googleUser) || googleUser.email!,
+          ),
+          roleAssignments: { create: { role: UserRole.CLIENT } },
+        },
       });
     }
 
@@ -89,12 +95,58 @@ export class ClientService {
       return existingClient;
     }
 
-    return this.prisma.client.create({
-      data: {
-        userId,
-        phoneVerifiedAt: null,
-      },
-      include: clientInclude,
+    return this.prisma.$transaction(async (tx) => {
+      await tx.userRoleAssignment.upsert({
+        where: { userId_role: { userId, role: UserRole.CLIENT } },
+        update: {},
+        create: { userId, role: UserRole.CLIENT },
+      });
+
+      return tx.client.create({
+        data: {
+          userId,
+          phoneVerifiedAt: null,
+        },
+        include: clientInclude,
+      });
+    });
+  }
+
+  /**
+   * Public booking intentionally resolves contacts server-side. It never
+   * exposes an existing client id or creates an authenticated session.
+   */
+  public async findOrCreatePublicBookingClient(data: {
+    name: string;
+    email: string;
+    phone: string;
+  }): Promise<ClientWithUser> {
+    const email = data.email.trim().toLowerCase();
+    const phone = data.phone.replace(/\D/g, '');
+    const existingUser = await this.prisma.user.findFirst({
+      where: { OR: [{ email }, { phone }] },
+    });
+
+    if (existingUser) {
+      const sameEmail =
+        !existingUser.email || existingUser.email.toLowerCase() === email;
+      const samePhone = !existingUser.phone || existingUser.phone === phone;
+
+      if (!sameEmail || !samePhone) {
+        throw new ConflictException(
+          'Os dados informados não correspondem à mesma conta.',
+        );
+      }
+
+      return this.findOrCreateClientForUser(existingUser.id);
+    }
+
+    return this.createClientWithUser({
+      name: data.name.trim(),
+      email,
+      phone,
+      password: null,
+      passwordSetAt: null,
     });
   }
 
@@ -208,8 +260,6 @@ export class ClientService {
               select: {
                 id: true,
                 name: true,
-                email: true,
-                phone: true,
               },
             },
           },
@@ -251,12 +301,7 @@ export class ClientService {
       passwordSetAt: null,
     });
 
-    const session = await this.authService.issueClientSession(client.id);
-
-    return {
-      ...ClientCreateMapper.toResponse(client),
-      ...session,
-    };
+    return ClientCreateMapper.toResponse(client);
   }
 
   public async register(data: CreateClientRegisterDto) {
@@ -348,6 +393,8 @@ export class ClientService {
 
     await this.ensureUserContactAvailable(data, existingClient.userId);
 
+    const phoneChanged = existingClient.user.phone !== data.phone;
+
     const client = await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: existingClient.userId },
@@ -355,8 +402,19 @@ export class ClientService {
           name: data.name,
           email: data.email ?? null,
           phone: data.phone,
+          ...(phoneChanged && {
+            twoFactorEnabled: false,
+            sessionVersion: { increment: 1 },
+          }),
         },
       });
+
+      if (phoneChanged) {
+        await tx.client.update({
+          where: { id },
+          data: { phoneVerifiedAt: null },
+        });
+      }
 
       return tx.client.findUnique({
         where: { id },

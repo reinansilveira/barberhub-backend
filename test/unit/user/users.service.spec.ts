@@ -18,12 +18,27 @@ import {
 import {
   USER_STUB,
   USER_PROFISSIONAL_STUB,
-  USER_COM_RESET_CODE_STUB,
-  USER_COM_RESET_CODE_EXPIRADO_STUB,
 } from '../../mocks/stubs/user.stub';
 
 jest.mock('bcrypt');
 const bcryptMock = bcrypt as jest.Mocked<typeof bcrypt>;
+
+const USER_SAFE_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  avatar: true,
+  gender: true,
+  role: true,
+  active: true,
+  emailVerified: true,
+  twoFactorEnabled: true,
+  lastLoginAt: true,
+  createdAt: true,
+  updatedAt: true,
+  roleAssignments: { select: { role: true } },
+};
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -59,6 +74,7 @@ describe('UsersService', () => {
       expect(prismaMock.user.findMany).toHaveBeenCalledWith({
         where: { active: true },
         orderBy: { createdAt: 'desc' },
+        select: USER_SAFE_SELECT,
       });
     });
 
@@ -70,6 +86,7 @@ describe('UsersService', () => {
       expect(prismaMock.user.findMany).toHaveBeenCalledWith({
         where: { active: false },
         orderBy: { createdAt: 'desc' },
+        select: USER_SAFE_SELECT,
       });
     });
 
@@ -81,7 +98,20 @@ describe('UsersService', () => {
       expect(prismaMock.user.findMany).toHaveBeenCalledWith({
         where: { active: true },
         orderBy: { createdAt: 'desc' },
+        select: USER_SAFE_SELECT,
       });
+    });
+
+    it('não seleciona senha, código de reset ou versão de sessão nas respostas', () => {
+      prismaMock.user.findMany.mockResolvedValue([USER_STUB]);
+
+      service.findAll();
+
+      const { select } = prismaMock.user.findMany.mock.calls[0][0];
+      expect(select).not.toHaveProperty('password');
+      expect(select).not.toHaveProperty('resetCode');
+      expect(select).not.toHaveProperty('resetCodeExpires');
+      expect(select).not.toHaveProperty('sessionVersion');
     });
   });
 
@@ -93,6 +123,7 @@ describe('UsersService', () => {
 
       expect(prismaMock.user.findUnique).toHaveBeenCalledWith({
         where: { id: 'uuid-user-123' },
+        select: USER_SAFE_SELECT,
       });
     });
 
@@ -148,6 +179,7 @@ describe('UsersService', () => {
 
       expect(prismaMock.user.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ password: '$2b$10$novoHashAqui' }),
+        select: USER_SAFE_SELECT,
       });
     });
 
@@ -202,6 +234,7 @@ describe('UsersService', () => {
 
       expect(prismaMock.user.findUnique).toHaveBeenCalledWith({
         where: { id: 'uuid-user-123' },
+        select: USER_SAFE_SELECT,
       });
     });
 
@@ -219,10 +252,13 @@ describe('UsersService', () => {
 
       await service.update('uuid-user-123', makeCreateUserDto());
 
-      expect(prismaMock.user.update).toHaveBeenCalledWith({
-        where: { id: 'uuid-user-123' },
-        data: expect.objectContaining({ password: '$2b$10$novoHashAqui' }),
-      });
+      expect(prismaMock.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'uuid-user-123' },
+          data: expect.objectContaining({ password: '$2b$10$novoHashAqui' }),
+          select: USER_SAFE_SELECT,
+        }),
+      );
     });
 
     it('lança BadRequestException quando o usuário não existe', async () => {
@@ -259,7 +295,8 @@ describe('UsersService', () => {
 
       expect(prismaMock.user.update).toHaveBeenCalledWith({
         where: { id: 'uuid-user-123' },
-        data: { active: false },
+        data: { active: false, sessionVersion: { increment: 1 } },
+        select: USER_SAFE_SELECT,
       });
     });
 
@@ -270,6 +307,24 @@ describe('UsersService', () => {
       const result = await service.deactivate('uuid-user-123');
 
       expect(result).toEqual(usuarioDesativado);
+    });
+  });
+
+  describe('updateAvatar', () => {
+    it('atualiza somente o avatar do próprio usuário e retorna campos seguros', async () => {
+      const avatar = 'data:image/jpeg;base64,avatar-comprimido';
+      const expected = { id: 'uuid-user-123', avatar };
+      prismaMock.user.update.mockResolvedValue(expected as never);
+
+      await expect(
+        service.updateAvatar('uuid-user-123', { avatar }),
+      ).resolves.toEqual(expected);
+
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: 'uuid-user-123' },
+        data: { avatar },
+        select: { id: true, avatar: true },
+      });
     });
   });
 
@@ -307,10 +362,16 @@ describe('UsersService', () => {
 
       await service.updatePassword('uuid-user-123', makeUpdatePasswordDto());
 
-      expect(prismaMock.user.update).toHaveBeenCalledWith({
-        where: { id: 'uuid-user-123' },
-        data: { password: '$2b$10$novaSenhaHash' },
-      });
+      expect(prismaMock.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'uuid-user-123' },
+          data: expect.objectContaining({
+            password: '$2b$10$novaSenhaHash',
+            sessionVersion: { increment: 1 },
+          }),
+          select: USER_SAFE_SELECT,
+        }),
+      );
     });
 
     it('lança BadRequestException quando a senha atual está errada', async () => {
@@ -340,227 +401,179 @@ describe('UsersService', () => {
     });
   });
 
+  const resetToken = {
+    id: 'reset-token-1',
+    userId: USER_STUB.id,
+    codeHash: '$2b$10$resetCodeHash',
+    attempts: 0,
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    consumedAt: null,
+    createdAt: new Date(),
+  };
+
   describe('forgotPassword', () => {
     const setupHappyPath = () => {
       prismaMock.user.findUnique.mockResolvedValue(USER_STUB);
-      prismaMock.user.update.mockResolvedValue(USER_STUB);
+      prismaMock.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
+      prismaMock.passwordResetToken.create.mockResolvedValue(resetToken);
+      bcryptMock.hash.mockResolvedValue('$2b$10$resetCodeHash' as never);
       emailMock.sendResetCode.mockResolvedValue(undefined);
     };
 
-    it('busca o usuário pelo email', async () => {
-      setupHappyPath();
-      const dto = makeForgotPasswordDto();
-
-      await service.forgotPassword(dto);
-
-      expect(prismaMock.user.findUnique).toHaveBeenCalledWith({
-        where: { email: dto.email },
-      });
-    });
-
-    it('salva o código de reset e o prazo de expiração no banco', async () => {
+    it('invalida códigos pendentes e salva apenas o hash do novo código', async () => {
       setupHappyPath();
 
       await service.forgotPassword(makeForgotPasswordDto());
 
-      expect(prismaMock.user.update).toHaveBeenCalledWith({
-        where: { email: USER_STUB.email },
+      expect(prismaMock.passwordResetToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: USER_STUB.id, consumedAt: null },
+        data: { consumedAt: expect.any(Date) },
+      });
+      expect(prismaMock.passwordResetToken.create).toHaveBeenCalledWith({
         data: {
-          resetCode: expect.stringMatching(/^\d{6}$/),
-          resetCodeExpires: expect.any(Date),
+          userId: USER_STUB.id,
+          codeHash: '$2b$10$resetCodeHash',
+          expiresAt: expect.any(Date),
         },
       });
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
     });
 
-    it('gera um código de 6 dígitos numéricos', async () => {
-      setupHappyPath();
-
-      await service.forgotPassword(makeForgotPasswordDto());
-
-      const chamada = prismaMock.user.update.mock.calls[0][0];
-      const codigo = chamada.data.resetCode;
-
-      expect(codigo).toMatch(/^\d{6}$/);
-    });
-
-    it('define expiração de 15 minutos a partir de agora', async () => {
-      setupHappyPath();
-      const antes = Date.now();
-
-      await service.forgotPassword(makeForgotPasswordDto());
-
-      const depois = Date.now();
-      const chamada = prismaMock.user.update.mock.calls[0][0];
-      const expiracao = chamada.data.resetCodeExpires.getTime();
-      const quinzeMinutos = 15 * 60 * 1000;
-
-      expect(expiracao).toBeGreaterThanOrEqual(antes + quinzeMinutos);
-      expect(expiracao).toBeLessThanOrEqual(depois + quinzeMinutos);
-    });
-
-    it('envia o email com o código para o endereço correto', async () => {
-      setupHappyPath();
-
-      await service.forgotPassword(makeForgotPasswordDto());
-
-      const chamada = prismaMock.user.update.mock.calls[0][0];
-      const codigoSalvo = chamada.data.resetCode;
-
-      expect(emailMock.sendResetCode).toHaveBeenCalledWith(
-        USER_STUB.email,
-        codigoSalvo,
-      );
-    });
-
-    it('retorna mensagem de confirmação', async () => {
+    it('gera um código de seis dígitos, envia-o ao e-mail e oculta o resultado', async () => {
       setupHappyPath();
 
       const result = await service.forgotPassword(makeForgotPasswordDto());
 
-      expect(result).toEqual({ message: 'E-mail enviado' });
+      const code = bcryptMock.hash.mock.calls[0][0] as string;
+      expect(code).toMatch(/^\d{6}$/);
+      expect(emailMock.sendResetCode).toHaveBeenCalledWith(USER_STUB.email, code);
+      expect(result).toEqual({
+        message: 'Se houver uma conta, enviaremos as instruções.',
+      });
     });
 
-    it('lança BadRequestException quando o email não está cadastrado', async () => {
+    it('não revela se o e-mail não existe', async () => {
       prismaMock.user.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.forgotPassword(makeForgotPasswordDto()),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('não envia email quando o usuário não existe', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(null);
-
-      await service.forgotPassword(makeForgotPasswordDto()).catch(() => {});
-
+      await expect(service.forgotPassword(makeForgotPasswordDto())).resolves.toEqual({
+        message: 'Se houver uma conta, enviaremos as instruções.',
+      });
+      expect(prismaMock.passwordResetToken.create).not.toHaveBeenCalled();
       expect(emailMock.sendResetCode).not.toHaveBeenCalled();
     });
   });
 
-
   describe('verifyCode', () => {
-    it('retorna mensagem de sucesso com código válido e dentro do prazo', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(USER_COM_RESET_CODE_STUB);
+    const setupValidToken = () => {
+      prismaMock.user.findUnique.mockResolvedValue(USER_STUB);
+      prismaMock.passwordResetToken.findFirst.mockResolvedValue(resetToken);
+      bcryptMock.compare.mockResolvedValue(true as never);
+    };
 
-      const result = await service.verifyCode(makeVerifyCodeDto());
+    it('aceita somente um token não consumido, dentro do prazo e com hash válido', async () => {
+      setupValidToken();
 
-      expect(result).toEqual({ message: 'Código válido.' });
+      await expect(service.verifyCode(makeVerifyCodeDto())).resolves.toEqual({
+        message: 'Código válido.',
+      });
+      expect(prismaMock.passwordResetToken.findFirst).toHaveBeenCalledWith({
+        where: {
+          userId: USER_STUB.id,
+          consumedAt: null,
+          expiresAt: { gt: expect.any(Date) },
+          attempts: { lt: 5 },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
     });
 
-    it('lança BadRequestException quando o usuário não existe', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(null);
-
-      await expect(service.verifyCode(makeVerifyCodeDto())).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('lança BadRequestException quando o código está errado', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(USER_COM_RESET_CODE_STUB);
+    it('incrementa tentativas sem revelar se o código está incorreto', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(USER_STUB);
+      prismaMock.passwordResetToken.findFirst.mockResolvedValue(resetToken);
+      bcryptMock.compare.mockResolvedValue(false as never);
 
       await expect(
         service.verifyCode(makeVerifyCodeDto({ code: '000000' })),
       ).rejects.toThrow(BadRequestException);
+      expect(prismaMock.passwordResetToken.update).toHaveBeenCalledWith({
+        where: { id: resetToken.id },
+        data: { attempts: { increment: 1 } },
+      });
     });
 
-    it('lança BadRequestException quando o código expirou', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(USER_COM_RESET_CODE_EXPIRADO_STUB);
-
+    it('rejeita usuário ausente ou token expirado sem consultar hash', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
       await expect(service.verifyCode(makeVerifyCodeDto())).rejects.toThrow(
         BadRequestException,
       );
-    });
 
-    it('lança BadRequestException quando resetCodeExpires é nulo', async () => {
-      prismaMock.user.findUnique.mockResolvedValue({
-        ...USER_COM_RESET_CODE_STUB,
-        resetCodeExpires: null,
-      });
-
+      prismaMock.user.findUnique.mockResolvedValue(USER_STUB);
+      prismaMock.passwordResetToken.findFirst.mockResolvedValue(null);
       await expect(service.verifyCode(makeVerifyCodeDto())).rejects.toThrow(
         BadRequestException,
       );
     });
   });
 
-
   describe('resetPassword', () => {
     const setupHappyPath = () => {
-      prismaMock.user.findUnique.mockResolvedValue(USER_COM_RESET_CODE_STUB);
+      prismaMock.user.findUnique.mockResolvedValue(USER_STUB);
+      prismaMock.passwordResetToken.findFirst.mockResolvedValue(resetToken);
+      prismaMock.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
+      bcryptMock.compare.mockResolvedValue(true as never);
       bcryptMock.hash.mockResolvedValue('$2b$10$senhaResetadaHash' as never);
       prismaMock.user.update.mockResolvedValue(USER_STUB);
     };
 
-    it('faz hash da nova senha antes de salvar', async () => {
+    it('consome o token de forma atômica, atualiza o hash e invalida sessões', async () => {
       setupHappyPath();
       const dto = makeResetPasswordDto();
 
-      await service.resetPassword(dto);
-
+      await expect(service.resetPassword(dto)).resolves.toEqual({
+        message: 'Senha redefinida com sucesso.',
+      });
       expect(bcryptMock.hash).toHaveBeenCalledWith(dto.newPassword, 10);
-    });
-
-    it('salva a nova senha e limpa os campos de reset', async () => {
-      setupHappyPath();
-
-      await service.resetPassword(makeResetPasswordDto());
-
+      expect(prismaMock.passwordResetToken.updateMany).toHaveBeenCalledWith({
+        where: { id: resetToken.id, consumedAt: null },
+        data: { consumedAt: expect.any(Date) },
+      });
       expect(prismaMock.user.update).toHaveBeenCalledWith({
-        where: { email: USER_COM_RESET_CODE_STUB.email },
+        where: { id: USER_STUB.id },
         data: {
           password: '$2b$10$senhaResetadaHash',
+          passwordSetAt: expect.any(Date),
+          mustChangePassword: false,
+          sessionVersion: { increment: 1 },
           resetCode: null,
           resetCodeExpires: null,
         },
       });
     });
 
-    it('retorna mensagem de sucesso', async () => {
+    it('não altera a senha se o token já foi consumido por outra requisição', async () => {
       setupHappyPath();
-
-      const result = await service.resetPassword(makeResetPasswordDto());
-
-      expect(result).toEqual({ message: 'Senha redefinida com sucesso.' });
-    });
-
-    it('lança BadRequestException quando o usuário não existe', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(null);
+      prismaMock.passwordResetToken.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.resetPassword(makeResetPasswordDto())).rejects.toThrow(
         BadRequestException,
       );
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
     });
 
-    it('lança BadRequestException quando o código está errado', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(USER_COM_RESET_CODE_STUB);
+    it('não altera a senha quando o código é inválido ou expirado', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(USER_STUB);
+      prismaMock.passwordResetToken.findFirst.mockResolvedValue(resetToken);
+      bcryptMock.compare.mockResolvedValue(false as never);
 
       await expect(
         service.resetPassword(makeResetPasswordDto({ code: '000000' })),
       ).rejects.toThrow(BadRequestException);
-    });
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
 
-    it('lança BadRequestException quando o código expirou', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(USER_COM_RESET_CODE_EXPIRADO_STUB);
-
+      prismaMock.passwordResetToken.findFirst.mockResolvedValue(null);
       await expect(service.resetPassword(makeResetPasswordDto())).rejects.toThrow(
         BadRequestException,
       );
-    });
-
-    it('não atualiza a senha quando o código está errado', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(USER_COM_RESET_CODE_STUB);
-
-      await service.resetPassword(makeResetPasswordDto({ code: '000000' })).catch(() => {});
-
-      expect(prismaMock.user.update).not.toHaveBeenCalled();
-    });
-
-    it('não atualiza a senha quando o código expirou', async () => {
-      prismaMock.user.findUnique.mockResolvedValue(USER_COM_RESET_CODE_EXPIRADO_STUB);
-
-      await service.resetPassword(makeResetPasswordDto()).catch(() => {});
-
-      expect(prismaMock.user.update).not.toHaveBeenCalled();
     });
   });
 });

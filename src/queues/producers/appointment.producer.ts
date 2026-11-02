@@ -1,6 +1,12 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Client, ClientProxy, Transport } from '@nestjs/microservices';
-import { AppointmentCreatedEvent, AppointmentReminderEvent, ClientReengagementEvent } from '../interfaces/events.interface';
+import { lastValueFrom } from 'rxjs';
+import {
+    AppointmentCancelledEvent,
+    AppointmentCreatedEvent,
+    AppointmentReminderEvent,
+    ClientReengagementEvent,
+} from '../interfaces/events.interface';
 
 @Injectable()
 export class AppointmentProducer {
@@ -14,48 +20,35 @@ export class AppointmentProducer {
     })
     private client: ClientProxy;
 
+    private async publish(pattern: string, event: unknown) {
+        await lastValueFrom(this.client.emit(pattern, event));
+    }
+
     async publishCreated(event: AppointmentCreatedEvent) {
-        this.client.emit('appointments.created', event);
+        await this.publish('appointments.created', event);
     }
 
     async publishConfirmed(event: AppointmentCreatedEvent) {
-        this.client.emit('appointments.confirmed', event);
+        await this.publish('appointments.confirmed', event);
     }
 
-    async publishCancelled(event: {
-        appointmentId: string;
-
-        clientId: string;
-        clientName: string;
-        clientPhone: string;
-        clientEmail: string;
-
-        professionalId: string;
-        professionalName: string;
-        professionalPhone: string;
-        professionalEmail: string;
-
-        serviceName: string;
-        scheduledAt: Date;
-
-        cancelReason: string;
-    }) {
-        this.client.emit('appointments.cancelled', event);
+    async publishCancelled(event: AppointmentCancelledEvent) {
+        await this.publish('appointments.cancelled', event);
     }
 
-    async publishCompleted(payload: {
-        appointmentId: string;
-        clientId: string;
-        professionalId: string;
-    }) {
-        this.client.emit('appointments.completed', payload);
+    async publishCompleted(event: AppointmentCreatedEvent) {
+        await this.publish('appointments.completed', event);
+    }
+
+    async publishRescheduled(event: AppointmentCreatedEvent) {
+        await this.publish('appointments.rescheduled', event);
     }
 
     async publishReminder(event: AppointmentReminderEvent) {
-        this.client.emit('appointments.reminder', event);
+        await this.publish('appointments.reminder', event);
     }
 
     async publishReengagement(event: ClientReengagementEvent) {
-        this.client.emit('clients.reengagement', event);
+        await this.publish('clients.reengagement', event);
     }
 }

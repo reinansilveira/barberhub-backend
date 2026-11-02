@@ -5,10 +5,11 @@ import { PrismaModule } from '../../shared/prisma/prisma.module';
 import { QueuesModule } from '../../queues/queues.module';
 import { ClientModule } from '../clients/client.module';
 import { AuthModule } from '../auth/auth.module';
+import { ClientThrottlerGuard } from '../../shared/security/client-throttler.guard';
 @Module({
     imports: [PrismaModule, QueuesModule, ClientModule, AuthModule],
     controllers: [AppointmentsController],
-    providers: [AppointmentsService],
+    providers: [AppointmentsService, ClientThrottlerGuard],
 
 })
 export class AppointmentsModule { }

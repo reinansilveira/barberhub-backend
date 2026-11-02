@@ -7,21 +7,38 @@ export const makePrismaMock = () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    userRoleAssignment: {
+      findMany: jest.fn(),
+      upsert: jest.fn(),
+    },
+    passwordResetToken: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     client: {
+      findMany: jest.fn(),
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    clientNotificationPreference: {
+      upsert: jest.fn(),
     },
     appointment: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     professional: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -62,14 +79,22 @@ export const makePrismaMock = () => {
     },
     notification: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
+      upsert: jest.fn(),
+    },
+    notificationReadReceipt: {
+      upsert: jest.fn(),
     },
     $transaction: jest.fn(),
   };
 
-  mock.$transaction.mockImplementation((fn: any) => fn(mock));
+  mock.$transaction.mockImplementation((operation: any) =>
+    Array.isArray(operation) ? Promise.all(operation) : operation(mock),
+  );
 
   return mock;
 };

@@ -1,8 +1,17 @@
-import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+    Injectable,
+    BadRequestException,
+    ConflictException,
+    ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { RespondReviewDto } from './dto/respond-review.dto';
-import { AppointmentStatus } from '@prisma/client';
+import { AppointmentStatus, UserRole } from '@prisma/client';
+import {
+    AuthPrincipal,
+    hasRole,
+} from '../auth/types/auth-principal.type';
 
 @Injectable()
 export class ReviewsService {
@@ -14,7 +23,7 @@ export class ReviewsService {
         });
     }
 
-    async create(data: CreateReviewDto) {
+    async create(data: CreateReviewDto, clientId?: string) {
         const appointment = await this.prisma.appointment.findUnique({
             where: { id: data.appointmentId },
         });
@@ -24,6 +33,12 @@ export class ReviewsService {
 
         if (appointment.status !== AppointmentStatus.COMPLETED)
             throw new BadRequestException('Appointment não finalizado');
+
+        if (clientId && appointment.clientId !== clientId) {
+            throw new ForbiddenException(
+                'Você não pode avaliar o agendamento de outro cliente',
+            );
+        }
 
         const exists = await this.prisma.review.findUnique({
             where: { appointmentId: data.appointmentId },
@@ -43,7 +58,24 @@ export class ReviewsService {
         });
     }
 
-    async respond(id: string, data: RespondReviewDto) {
+    async respond(id: string, data: RespondReviewDto, actor?: AuthPrincipal) {
+        if (actor && !hasRole(actor, UserRole.ADMIN)) {
+            const review = await this.prisma.review.findUnique({
+                where: { id },
+                include: { professional: { select: { userId: true } } },
+            });
+
+            if (
+                !review ||
+                !hasRole(actor, UserRole.PROFESSIONAL) ||
+                review.professional.userId !== actor.sub
+            ) {
+                throw new ForbiddenException(
+                    'Você não pode responder esta avaliação',
+                );
+            }
+        }
+
         return this.prisma.review.update({
             where: { id },
             data: {

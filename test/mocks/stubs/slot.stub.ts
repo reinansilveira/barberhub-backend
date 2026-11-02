@@ -22,5 +22,9 @@ export const SCHEDULE_STUB = {
   professionalId: 'uuid-prof-1',
   dayOfWeek: new Date('2024-06-01T10:00:00Z').getDay(),
   date: null,
+  startTime: '00:00',
+  endTime: '23:59',
+  breakStart: null,
+  breakEnd: null,
   active: true,
 };

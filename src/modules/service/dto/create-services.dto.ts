@@ -25,11 +25,10 @@ export class CreateServicesDto {
   @IsString({ message: 'O campo [description] precisa ser uma string.' })
   description?: string;
 
-  @ApiPropertyOptional({ example: 30 })
-  @IsOptional()
+  @ApiProperty({ example: 30 })
   @IsInt({ message: 'O campo [duration] precisa ser um número inteiro.' })
   @Min(1, { message: 'O campo [duration] deve ser maior que zero.' })
-  duration?: number;
+  duration: number;
 
   @ApiPropertyOptional({ example: 'Barbearia' })
   @IsOptional()

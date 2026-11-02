@@ -17,7 +17,29 @@ export class PaymentsService {
                 status: status || undefined,
             },
             include: {
-                appointment: true,
+                appointment: {
+                    select: {
+                        id: true,
+                        scheduledAt: true,
+                        service: { select: { id: true, name: true } },
+                        professional: {
+                            select: {
+                                id: true,
+                                user: {
+                                    select: { id: true, name: true, avatar: true },
+                                },
+                            },
+                        },
+                        client: {
+                            select: {
+                                id: true,
+                                user: {
+                                    select: { id: true, name: true, avatar: true },
+                                },
+                            },
+                        },
+                    },
+                },
             },
             orderBy: { createdAt: 'desc' },
         });
@@ -26,7 +48,31 @@ export class PaymentsService {
     async findById(id: string) {
         const payment = await this.prisma.payment.findUnique({
             where: { id },
-            include: { appointment: true },
+            include: {
+                appointment: {
+                    select: {
+                        id: true,
+                        scheduledAt: true,
+                        service: { select: { id: true, name: true } },
+                        professional: {
+                            select: {
+                                id: true,
+                                user: {
+                                    select: { id: true, name: true, avatar: true },
+                                },
+                            },
+                        },
+                        client: {
+                            select: {
+                                id: true,
+                                user: {
+                                    select: { id: true, name: true, avatar: true },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
         });
 
         if (!payment) {

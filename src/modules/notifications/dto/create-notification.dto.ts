@@ -34,6 +34,16 @@ export class CreateNotificationDto {
     @IsUUID('4', { message: 'O campo [appointmentId] precisa ser um UUID válido.' })
     appointmentId?: string;
 
+    @ApiPropertyOptional({ example: 'uuid-do-usuário-destinatário' })
+    @IsOptional()
+    @IsUUID('4', { message: 'O campo [recipientUserId] precisa ser um UUID válido.' })
+    recipientUserId?: string;
+
+    @ApiPropertyOptional({ example: 'appointments.created:uuid:client:EMAIL' })
+    @IsOptional()
+    @IsString({ message: 'O campo [idempotencyKey] precisa ser uma string.' })
+    idempotencyKey?: string;
+
     @ApiPropertyOptional({ example: { foo: 'bar' } })
     @IsOptional()
     @IsObject({ message: 'O campo [metadata] precisa ser um objeto JSON.' })

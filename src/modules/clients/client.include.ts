@@ -9,6 +9,7 @@ export const clientUserSelect = {
   gender: true,
   active: true,
   mustChangePassword: true,
+  twoFactorEnabled: true,
 } as const;
 
 export const clientInclude = {

@@ -7,6 +7,12 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { PrismaModule } from '../../shared/prisma/prisma.module';
 import { NotificationSenderService } from '../notifications/sender/notification-sender.service';
+import { ClientAuthGuard } from './guards/client-auth.guard';
+import { AdminAuthGuard } from './guards/admin-auth.guard';
+import { ClientOrProfessionalAuthGuard } from './guards/client-or-professional-auth.guard';
+import { ProfessionalAuthGuard } from './guards/professional-auth.guard';
+import { AdminOrProfessionalAuthGuard } from './guards/admin-or-professional-auth.guard';
+import { ClientThrottlerGuard } from '../../shared/security/client-throttler.guard';
 
 @Module({
   imports: [
@@ -24,8 +30,24 @@ import { NotificationSenderService } from '../notifications/sender/notification-
     AuthService,
     JwtStrategy,
     JwtAuthGuard,
+    ClientAuthGuard,
+    AdminAuthGuard,
+    ProfessionalAuthGuard,
+    ClientOrProfessionalAuthGuard,
+    AdminOrProfessionalAuthGuard,
+    ClientThrottlerGuard,
     NotificationSenderService,
   ],
-  exports: [JwtModule, JwtAuthGuard, AuthService],
+  exports: [
+    JwtModule,
+    JwtAuthGuard,
+    ClientAuthGuard,
+    AdminAuthGuard,
+    ProfessionalAuthGuard,
+    ClientOrProfessionalAuthGuard,
+    AdminOrProfessionalAuthGuard,
+    ClientThrottlerGuard,
+    AuthService,
+  ],
 })
 export class AuthModule {}

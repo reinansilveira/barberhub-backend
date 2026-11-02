@@ -24,7 +24,12 @@
     "rootDir": ".",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
+      "^.+\\.(t|j)s$": [
+        "ts-jest",
+        {
+          "tsconfig": "./tsconfig.spec.json"
+        }
+      ]
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
@@ -34,12 +39,7 @@
     "roots": [
       "<rootDir>/test/",
       "<rootDir>/src/"
-    ],
-    "globals": {
-      "ts-jest": {
-        "tsconfig": "./tsconfig.spec.json"
-      }
-    }
+    ]
   },
   "dependencies": {
     "@nest-lab/throttler-storage-redis": "^1.2.0",

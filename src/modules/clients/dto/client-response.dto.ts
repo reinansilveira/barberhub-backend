@@ -16,11 +16,17 @@ export class ClientResponseDto {
   @ApiPropertyOptional({ example: 'joao@email.com' })
   email?: string;
 
+  @ApiPropertyOptional({ example: 'https://meusite.com/avatar.jpg' })
+  avatar?: string | null;
+
   @ApiPropertyOptional({ example: '2026-04-19T12:00:00.000Z' })
   phoneVerifiedAt?: Date | null;
 
   @ApiPropertyOptional({ example: '2026-04-19T12:00:00.000Z' })
   emailVerifiedAt?: Date | null;
+
+  @ApiProperty({ example: false })
+  twoFactorEnabled: boolean;
 
   @ApiProperty({ example: true })
   active: boolean;

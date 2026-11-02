@@ -12,6 +12,29 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyCodeDto } from './dto/verify-code.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdatePasswordDto } from './dto/update-password';
+import { UpdateUserAvatarDto } from './dto/update-user-avatar.dto';
+import { UserRole } from '@prisma/client';
+import * as crypto from 'crypto';
+
+const RESET_CODE_TTL_MS = 15 * 60 * 1000;
+const RESET_CODE_MAX_ATTEMPTS = 5;
+
+const userSafeSelect = {
+    id: true,
+    name: true,
+    email: true,
+    phone: true,
+    avatar: true,
+    gender: true,
+    role: true,
+    active: true,
+    emailVerified: true,
+    twoFactorEnabled: true,
+    lastLoginAt: true,
+    createdAt: true,
+    updatedAt: true,
+    roleAssignments: { select: { role: true } },
+} as const;
 
 @Injectable()
 export class UsersService {
@@ -24,11 +47,15 @@ export class UsersService {
         return this.prisma.user.findMany({
             where: { active: active === 'false' ? false : true },
             orderBy: { createdAt: 'desc' },
+            select: userSafeSelect,
         });
     }
 
     async findById(id: string) {
-        const user = await this.prisma.user.findUnique({ where: { id } });
+        const user = await this.prisma.user.findUnique({
+            where: { id },
+            select: userSafeSelect,
+        });
         if (!user) throw new BadRequestException('Usuário não encontrado');
         return user;
     }
@@ -49,7 +76,14 @@ export class UsersService {
         try {
             const hashedPassword = await bcrypt.hash(data.password, 10);
             return this.prisma.user.create({
-                data: { ...data, password: hashedPassword },
+                data: {
+                    ...data,
+                    password: hashedPassword,
+                    roleAssignments: {
+                        create: { role: data.role ?? UserRole.CLIENT },
+                    },
+                },
+                select: userSafeSelect,
             });
         } catch (error) {
             this.handleUniqueConstraint(error);
@@ -71,9 +105,28 @@ export class UsersService {
 
         const hashedPassword = await bcrypt.hash(data.password, 10);
         try {
-            return this.prisma.user.update({
-                where: { id },
-                data: { ...data, password: hashedPassword },
+            return this.prisma.$transaction(async (tx) => {
+                const user = await tx.user.update({
+                    where: { id },
+                    data: {
+                        ...data,
+                        password: hashedPassword,
+                        passwordSetAt: new Date(),
+                        sessionVersion: { increment: 1 },
+                    },
+                    select: userSafeSelect,
+                });
+                await tx.userRoleAssignment.upsert({
+                    where: {
+                        userId_role: {
+                            userId: id,
+                            role: data.role ?? user.role,
+                        },
+                    },
+                    update: {},
+                    create: { userId: id, role: data.role ?? user.role },
+                });
+                return user;
             });
         } catch (error) {
             this.handleUniqueConstraint(error);
@@ -83,83 +136,146 @@ export class UsersService {
     deactivate(id: string) {
         return this.prisma.user.update({
             where: { id },
-            data: { active: false },
+            data: { active: false, sessionVersion: { increment: 1 } },
+            select: userSafeSelect,
         });
     }
 
     async updatePassword(id: string, { currentPassword, newPassword }: UpdatePasswordDto) {
-        const user = await this.findById(id);
+        const user = await this.prisma.user.findUnique({
+            where: { id },
+            select: { id: true, password: true },
+        });
 
-        const isValid = await bcrypt.compare(currentPassword, user.password);
+        if (!user) throw new BadRequestException('Usuário não encontrado');
+
+        const isValid =
+            Boolean(user.password) &&
+            (await bcrypt.compare(currentPassword, user.password));
         if (!isValid) throw new BadRequestException('Senha atual incorreta.');
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         return this.prisma.user.update({
             where: { id },
-            data: { password: hashedPassword },
+            data: {
+                password: hashedPassword,
+                passwordSetAt: new Date(),
+                sessionVersion: { increment: 1 },
+            },
+            select: userSafeSelect,
+        });
+    }
+
+    updateAvatar(id: string, { avatar }: UpdateUserAvatarDto) {
+        return this.prisma.user.update({
+            where: { id },
+            data: { avatar },
+            select: { id: true, avatar: true },
         });
     }
 
     async forgotPassword({ email }: ForgotPasswordDto) {
-        const user = await this.prisma.user.findUnique({ where: { email } });
+        const normalizedEmail = email.trim().toLowerCase();
+        const user = await this.prisma.user.findUnique({
+            where: { email: normalizedEmail },
+        });
+        const response = {
+            message: 'Se houver uma conta, enviaremos as instruções.',
+        };
 
-        if (!user) {
-            throw new BadRequestException('E-mail não encontrado');
+        if (!user || !user.active) {
+            return response;
         }
 
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
-        const expires = new Date(Date.now() + 15 * 60 * 1000);
+        const code = crypto.randomInt(100000, 1000000).toString();
+        const expiresAt = new Date(Date.now() + RESET_CODE_TTL_MS);
 
-        await this.prisma.user.update({
-            where: { email },
-            data: {
-                resetCode: code,
-                resetCodeExpires: expires,
-            },
+        await this.prisma.$transaction(async (tx) => {
+            await tx.passwordResetToken.updateMany({
+                where: { userId: user.id, consumedAt: null },
+                data: { consumedAt: new Date() },
+            });
+            await tx.passwordResetToken.create({
+                data: {
+                    userId: user.id,
+                    codeHash: await bcrypt.hash(code, 10),
+                    expiresAt,
+                },
+            });
         });
 
-        await this.email.sendResetCode(email, code);
+        await this.email.sendResetCode(normalizedEmail, code);
 
-        return { message: 'E-mail enviado' };
+        return response;
     }
 
     async verifyCode({ email, code }: VerifyCodeDto) {
-        const user = await this.prisma.user.findUnique({ where: { email } });
-
-        if (!user || user.resetCode !== code) {
-            throw new BadRequestException('Código inválido.');
-        }
-
-        if (!user.resetCodeExpires || user.resetCodeExpires < new Date()) {
-            throw new BadRequestException('Código expirado. Solicite um novo.');
-        }
+        await this.getValidResetToken(email, code);
 
         return { message: 'Código válido.' };
     }
 
     async resetPassword({ email, code, newPassword }: ResetPasswordDto) {
-        const user = await this.prisma.user.findUnique({ where: { email } });
-
-        if (!user || user.resetCode !== code) {
-            throw new BadRequestException('Código inválido.');
-        }
-
-        if (!user.resetCodeExpires || user.resetCodeExpires < new Date()) {
-            throw new BadRequestException('Código expirado. Solicite um novo.');
-        }
-
+        const { user, token } = await this.getValidResetToken(email, code);
         const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-        await this.prisma.user.update({
-            where: { email },
-            data: {
-                password: hashedPassword,
-                resetCode: null,
-                resetCodeExpires: null,
-            },
+        await this.prisma.$transaction(async (tx) => {
+            const consumed = await tx.passwordResetToken.updateMany({
+                where: { id: token.id, consumedAt: null },
+                data: { consumedAt: new Date() },
+            });
+
+            if (consumed.count !== 1) {
+                throw new BadRequestException('Código inválido ou expirado.');
+            }
+
+            await tx.user.update({
+                where: { id: user.id },
+                data: {
+                    password: hashedPassword,
+                    passwordSetAt: new Date(),
+                    mustChangePassword: false,
+                    sessionVersion: { increment: 1 },
+                    resetCode: null,
+                    resetCodeExpires: null,
+                },
+            });
         });
 
         return { message: 'Senha redefinida com sucesso.' };
+    }
+
+    private async getValidResetToken(email: string, code: string) {
+        const normalizedEmail = email.trim().toLowerCase();
+        const user = await this.prisma.user.findUnique({
+            where: { email: normalizedEmail },
+        });
+
+        if (!user || !user.active) {
+            throw new BadRequestException('Código inválido ou expirado.');
+        }
+
+        const token = await this.prisma.passwordResetToken.findFirst({
+            where: {
+                userId: user.id,
+                consumedAt: null,
+                expiresAt: { gt: new Date() },
+                attempts: { lt: RESET_CODE_MAX_ATTEMPTS },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+
+        if (!token || !(await bcrypt.compare(code, token.codeHash))) {
+            if (token) {
+                await this.prisma.passwordResetToken.update({
+                    where: { id: token.id },
+                    data: { attempts: { increment: 1 } },
+                });
+            }
+            throw new BadRequestException('Código inválido ou expirado.');
+        }
+
+        return { user, token };
     }
 
     private handleUniqueConstraint(error: unknown): never {

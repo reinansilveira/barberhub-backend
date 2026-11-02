@@ -17,6 +17,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
+import { UserRole } from '@prisma/client';
 import {
   ApiTags,
   ApiOperation,
@@ -33,6 +34,12 @@ import { ClientAuthGuard } from '../auth/guards/client-auth.guard';
 import { GoogleClientAuthGuard } from '../auth/guards/google-client-auth.guard';
 import { GoogleUserDto } from '../auth/dto/google-user.dto';
 import { ClientThrottlerGuard } from '../../shared/security/client-throttler.guard';
+import { AdminAuthGuard } from '../auth/guards/admin-auth.guard';
+import {
+  AuthPrincipal,
+  hasRole,
+  isBackOfficePrincipal,
+} from '../auth/types/auth-principal.type';
 
 @ApiTags('Clients')
 @ApiBearerAuth()
@@ -46,6 +53,19 @@ export class ClientController {
     if (principal.sub !== id) {
       throw new ForbiddenException('Você não pode alterar outro cliente');
     }
+  }
+
+  private ensureCanRead(request: Request, id: string) {
+    const principal = request['user'] as AuthPrincipal;
+
+    if (
+      (principal.accountType === 'CLIENT' && principal.sub === id) ||
+      (isBackOfficePrincipal(principal) && hasRole(principal, UserRole.ADMIN))
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException('Você não pode acessar outro cliente');
   }
 
   @Get('me/dashboard')
@@ -94,21 +114,21 @@ export class ClientController {
   }
 
   @Get(':id')
-  @Public()
   @UseGuards(ClientThrottlerGuard)
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Buscar cliente por ID' })
   public findById(
     @Param('id') id: string,
+    @Req() request: Request,
     @Query('active', new ParseBoolPipe({ optional: true })) active?: boolean,
   ): Promise<ClientResponseDto> {
+    this.ensureCanRead(request, id);
     return this.clientService.findById(id, active);
   }
 
-  @Public()
   @Post()
-  @UseGuards(ClientThrottlerGuard)
+  @UseGuards(AdminAuthGuard, ClientThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Criar novo cliente' })

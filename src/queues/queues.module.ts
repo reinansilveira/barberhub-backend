@@ -3,9 +3,9 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppointmentProducer } from './producers/appointment.producer';
 import { NotificationConsumer } from './consumers/notification.consumer';
-import { ReminderConsumer } from './consumers/reminder.consumer';
 import { ReminderScheduler } from './producers/reminder.scheduler';
 import { NotificationsModule } from '../modules/notifications/notifications.module';
+import { ClientAccountModule } from '../modules/client-account/client-account.module';
 
 @Module({
     imports: [
@@ -22,13 +22,13 @@ import { NotificationsModule } from '../modules/notifications/notifications.modu
         ]),
         ScheduleModule.forRoot(),
         NotificationsModule,
+        ClientAccountModule,
     ],
     controllers: [
         NotificationConsumer,
     ],
     providers: [
         AppointmentProducer,
-        ReminderConsumer,
         ReminderScheduler,
     ],
     exports: [AppointmentProducer],

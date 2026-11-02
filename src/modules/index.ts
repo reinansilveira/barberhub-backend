@@ -1,4 +1,5 @@
 export * from './clients/client.module';
+export * from './client-account/client-account.module';
 export * from './professionals/professionals.module';
 export * from './service/services.module';
 export * from './appointments/appointments.module';

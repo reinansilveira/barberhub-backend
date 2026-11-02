@@ -1,5 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { AppointmentStatus } from '@prisma/client';
 
 import { AppointmentsService } from '../../../src/modules/appointments/appointments.service';
@@ -25,11 +30,26 @@ jest.mock('../../../src/modules/appointments/events/appointment.events');
 
 const AppointmentMapperMock = AppointmentMapper as jest.Mocked<typeof AppointmentMapper>;
 const AppointmentEventsMock = AppointmentEvents as jest.Mocked<typeof AppointmentEvents>;
+const FITTING_SCHEDULE = {
+  startTime: '00:00',
+  endTime: '23:59',
+  breakStart: null,
+  breakEnd: null,
+};
 
 describe('AppointmentsService', () => {
   let service: AppointmentsService;
   let prismaMock: ReturnType<typeof makePrismaMock>;
-  let producerMock: jest.Mocked<Pick<AppointmentProducer, 'publishCreated' | 'publishCancelled'>>;
+  let producerMock: jest.Mocked<
+    Pick<
+      AppointmentProducer,
+      | 'publishCancelled'
+      | 'publishCompleted'
+      | 'publishConfirmed'
+      | 'publishCreated'
+      | 'publishRescheduled'
+    >
+  >;
 
   beforeEach(async () => {
     prismaMock = makePrismaMock();
@@ -37,6 +57,9 @@ describe('AppointmentsService', () => {
     producerMock = {
       publishCreated: jest.fn().mockResolvedValue(undefined),
       publishCancelled: jest.fn().mockResolvedValue(undefined),
+      publishConfirmed: jest.fn().mockResolvedValue(undefined),
+      publishCompleted: jest.fn().mockResolvedValue(undefined),
+      publishRescheduled: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -118,7 +141,8 @@ describe('AppointmentsService', () => {
       prismaMock.professionalService.findUnique.mockResolvedValue(PROFESSIONAL_SERVICE_STUB);
       prismaMock.timeSlot.findFirst.mockResolvedValue(SLOT_STUB);
       prismaMock.appointment.create.mockResolvedValue(APPOINTMENT_STUB);
-      prismaMock.timeSlot.update.mockResolvedValue({ ...SLOT_STUB, available: false });
+      prismaMock.timeSlot.updateMany.mockResolvedValue({ count: 1 });
+      prismaMock.schedule.findMany.mockResolvedValue([FITTING_SCHEDULE]);
       prismaMock.appointment.findUnique.mockResolvedValue(APPOINTMENT_STUB);
       AppointmentMapperMock.toResponse.mockReturnValue(APPOINTMENT_RESPONSE_STUB);
       AppointmentEventsMock.createdPayload.mockReturnValue({} as any);
@@ -185,8 +209,13 @@ describe('AppointmentsService', () => {
 
       await service.create(makeCreateAppointmentDto());
 
-      expect(prismaMock.timeSlot.update).toHaveBeenCalledWith({
-        where: { id: SLOT_STUB.id },
+      expect(prismaMock.timeSlot.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: SLOT_STUB.id,
+          professionalId: SLOT_STUB.professionalId,
+          available: true,
+          appointmentId: null,
+        },
         data: { available: false, appointmentId: APPOINTMENT_STUB.id },
       });
     });
@@ -351,6 +380,19 @@ describe('AppointmentsService', () => {
       await expect(service.cancel('id-inexistente')).rejects.toThrow(NotFoundException);
     });
 
+    it('impede que um cliente cancele o agendamento de outra pessoa', async () => {
+      prismaMock.appointment.findUnique.mockResolvedValue(
+        APPOINTMENT_CANCELAVEL_STUB,
+      );
+
+      await expect(
+        service.cancel('uuid-appointment-1', undefined, {
+          sub: 'outro-cliente',
+          accountType: 'CLIENT',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
     it('lança BadRequestException quando o agendamento já está cancelado', async () => {
       prismaMock.appointment.findUnique.mockResolvedValue({
         ...APPOINTMENT_CANCELAVEL_STUB,
@@ -360,16 +402,18 @@ describe('AppointmentsService', () => {
       await expect(service.cancel('uuid-appointment-1')).rejects.toThrow(BadRequestException);
     });
 
-    it('lança BadRequestException quando o cliente não tem email', async () => {
+    it('cancela mesmo sem email do cliente para não prender o slot', async () => {
+      setupHappyPath();
       prismaMock.appointment.findUnique.mockResolvedValue({
         ...APPOINTMENT_CANCELAVEL_STUB,
         client: CLIENT_SEM_EMAIL_STUB,
       });
 
-      await expect(service.cancel('uuid-appointment-1')).rejects.toThrow(BadRequestException);
+      await expect(service.cancel('uuid-appointment-1')).resolves.toBeDefined();
     });
 
-    it('lança BadRequestException quando o profissional não tem dados de contato', async () => {
+    it('cancela mesmo sem contato do profissional para não prender o slot', async () => {
+      setupHappyPath();
       prismaMock.appointment.findUnique.mockResolvedValue({
         ...APPOINTMENT_CANCELAVEL_STUB,
         professional: {
@@ -378,7 +422,162 @@ describe('AppointmentsService', () => {
         },
       });
 
-      await expect(service.cancel('uuid-appointment-1')).rejects.toThrow(BadRequestException);
+      await expect(service.cancel('uuid-appointment-1')).resolves.toBeDefined();
+    });
+  });
+
+  describe('updateStatus', () => {
+    const setupHappyPath = () => {
+      prismaMock.appointment.findUnique.mockResolvedValue(
+        APPOINTMENT_CANCELAVEL_STUB,
+      );
+      prismaMock.appointment.update.mockResolvedValue(
+        APPOINTMENT_CANCELAVEL_STUB,
+      );
+      AppointmentMapperMock.toResponse.mockReturnValue(
+        APPOINTMENT_RESPONSE_STUB,
+      );
+      AppointmentEventsMock.createdPayload.mockReturnValue({} as any);
+    };
+
+    it('publica confirmação quando o agendamento é confirmado', async () => {
+      setupHappyPath();
+
+      await service.updateStatus(
+        APPOINTMENT_STUB.id,
+        AppointmentStatus.CONFIRMED,
+      );
+
+      expect(producerMock.publishConfirmed).toHaveBeenCalledTimes(1);
+    });
+
+    it('publica conclusão quando o atendimento é concluído', async () => {
+      setupHappyPath();
+      prismaMock.appointment.findUnique.mockResolvedValue({
+        ...APPOINTMENT_CANCELAVEL_STUB,
+        status: AppointmentStatus.IN_PROGRESS,
+      });
+
+      await service.updateStatus(
+        APPOINTMENT_STUB.id,
+        AppointmentStatus.COMPLETED,
+      );
+
+      expect(producerMock.publishCompleted).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejeita pular etapas do status do agendamento', async () => {
+      setupHappyPath();
+
+      await expect(
+        service.updateStatus(APPOINTMENT_STUB.id, AppointmentStatus.COMPLETED),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('impede que clientes alterem o status de um agendamento', async () => {
+      prismaMock.appointment.findUnique.mockResolvedValue(
+        APPOINTMENT_CANCELAVEL_STUB,
+      );
+
+      await expect(
+        service.updateStatus(
+          APPOINTMENT_STUB.id,
+          AppointmentStatus.COMPLETED,
+          { sub: CLIENT_STUB.id, accountType: 'CLIENT' },
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('reschedule', () => {
+    const dto = {
+      professionalId: PROFESSIONAL_STUB.id,
+      serviceId: SERVICE_STUB.id,
+      slotId: SLOT_STUB.id,
+    };
+
+    const setupHappyPath = () => {
+      const rescheduled = {
+        ...APPOINTMENT_CANCELAVEL_STUB,
+        scheduledAt: SLOT_STUB.startsAt,
+      };
+      prismaMock.appointment.findUnique.mockResolvedValue(
+        APPOINTMENT_CANCELAVEL_STUB,
+      );
+      prismaMock.professional.findUnique.mockResolvedValue(PROFESSIONAL_STUB);
+      prismaMock.professionalService.findUnique.mockResolvedValue(
+        PROFESSIONAL_SERVICE_STUB,
+      );
+      prismaMock.timeSlot.findFirst.mockResolvedValue(SLOT_STUB);
+      prismaMock.timeSlot.updateMany.mockResolvedValue({ count: 1 });
+      prismaMock.schedule.findMany.mockResolvedValue([FITTING_SCHEDULE]);
+      prismaMock.appointment.update.mockResolvedValue(rescheduled);
+      AppointmentMapperMock.toResponse.mockReturnValue(
+        APPOINTMENT_RESPONSE_STUB,
+      );
+      AppointmentEventsMock.createdPayload.mockReturnValue({} as any);
+    };
+
+    it('atualiza o horário e troca os slots em uma transação', async () => {
+      setupHappyPath();
+
+      await service.reschedule(
+        APPOINTMENT_STUB.id,
+        dto,
+        CLIENT_STUB.id,
+      );
+
+      expect(prismaMock.timeSlot.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { appointmentId: APPOINTMENT_STUB.id, id: { not: SLOT_STUB.id } },
+        data: { available: true, appointmentId: null },
+      });
+      expect(prismaMock.timeSlot.updateMany).toHaveBeenNthCalledWith(2, {
+        where: {
+          id: SLOT_STUB.id,
+          professionalId: dto.professionalId,
+          available: true,
+          appointmentId: null,
+        },
+        data: { available: false, appointmentId: APPOINTMENT_STUB.id },
+      });
+      expect(prismaMock.appointment.update).toHaveBeenCalledWith({
+        where: { id: APPOINTMENT_STUB.id },
+        data: expect.objectContaining({
+          professionalId: dto.professionalId,
+          serviceId: dto.serviceId,
+          scheduledAt: SLOT_STUB.startsAt,
+          status: AppointmentStatus.PENDING,
+        }),
+        include: expect.any(Object),
+      });
+      expect(producerMock.publishRescheduled).toHaveBeenCalledTimes(1);
+    });
+
+    it('falha sem atualizar o agendamento quando outro pedido ganha o slot', async () => {
+      setupHappyPath();
+      prismaMock.timeSlot.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.reschedule(APPOINTMENT_STUB.id, dto, CLIENT_STUB.id),
+      ).rejects.toThrow(ConflictException);
+
+      expect(prismaMock.timeSlot.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { appointmentId: APPOINTMENT_STUB.id, id: { not: SLOT_STUB.id } },
+        data: { available: true, appointmentId: null },
+      });
+      expect(prismaMock.appointment.update).not.toHaveBeenCalled();
+    });
+
+    it('impede que um cliente remarque o agendamento de outra pessoa', async () => {
+      prismaMock.appointment.findUnique.mockResolvedValue(
+        APPOINTMENT_CANCELAVEL_STUB,
+      );
+
+      await expect(
+        service.reschedule(APPOINTMENT_STUB.id, dto, 'outro-cliente'),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

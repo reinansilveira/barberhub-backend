@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 import { AuthService } from '../../../src/modules/auth/auth.service';
 import { PrismaService } from '../../../src/shared/prisma/prisma.service';
@@ -116,6 +117,28 @@ describe('AuthService', () => {
       );
     });
 
+    it('emite todos os papéis atuais do usuário no token', async () => {
+      setupHappyPath();
+      prismaMock.userRoleAssignment.findMany.mockResolvedValue([
+        { role: 'ADMIN' },
+        { role: 'PROFESSIONAL' },
+      ]);
+
+      await service.login(makeLoginDto());
+
+      expect(jwtMock.sign).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          sub: USER_STUB.id,
+          accountType: 'USER',
+          role: 'ADMIN',
+          roles: ['ADMIN', 'PROFESSIONAL'],
+          sessionVersion: USER_STUB.sessionVersion,
+        }),
+        expect.any(Object),
+      );
+    });
+
     it('lança UnauthorizedException quando o usuário não existe', async () => {
       prismaMock.user.findUnique.mockResolvedValue(null);
 
@@ -160,8 +183,339 @@ describe('AuthService', () => {
     });
   });
 
+  describe('login do cliente', () => {
+    it('emite somente o papel CLIENT para uma sessão de cliente', async () => {
+      prismaMock.client.findFirst.mockResolvedValue({
+        ...CLIENT_STUB,
+        user: {
+          ...CLIENT_STUB.user,
+          role: 'ADMIN',
+          roleAssignments: [{ role: 'ADMIN' }],
+        },
+      } as never);
+      bcryptMock.compare.mockResolvedValue(true as never);
+      jwtMock.sign
+        .mockReturnValueOnce(TOKEN_PAIR_STUB.access_token)
+        .mockReturnValueOnce(TOKEN_PAIR_STUB.refresh_token);
+      redisMock.set.mockResolvedValue('OK');
+
+      await service.loginClient(makeLoginDto());
+
+      expect(jwtMock.sign).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          sub: CLIENT_STUB.id,
+          accountType: 'CLIENT',
+          role: 'CLIENT',
+          roles: ['CLIENT'],
+        }),
+        expect.any(Object),
+      );
+      expect(prismaMock.userRoleAssignment.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('recuperação de senha do cliente', () => {
+    it('envia um código temporário para os contatos do cliente', async () => {
+      prismaMock.client.findFirst.mockResolvedValue(CLIENT_STUB);
+      bcryptMock.hash.mockResolvedValue('$2b$10$resetCodeHash' as never);
+      redisMock.set.mockResolvedValue('OK');
+      notificationMock.sendEmail.mockResolvedValue(undefined);
+      notificationMock.sendWhatsApp.mockResolvedValue(undefined);
+
+      const result = await service.requestClientPasswordReset(
+        CLIENT_STUB.user.email,
+      );
+
+      expect(redisMock.set).toHaveBeenCalledWith(
+        `client:password-reset:${CLIENT_STUB.userId}`,
+        '$2b$10$resetCodeHash',
+        'EX',
+        15 * 60,
+      );
+      expect(notificationMock.sendEmail).toHaveBeenCalledWith(
+        CLIENT_STUB.user.email,
+        'Redefinição de senha',
+        expect.stringContaining('código'),
+        expect.stringContaining('código'),
+      );
+      expect(notificationMock.sendWhatsApp).toHaveBeenCalledWith(
+        CLIENT_STUB.user.phone,
+        expect.stringContaining('código'),
+      );
+      expect(result).toEqual({
+        message: 'Se houver uma conta, enviaremos as instruções.',
+      });
+    });
+
+    it('não revela quando o e-mail não está cadastrado', async () => {
+      prismaMock.client.findFirst.mockResolvedValue(null);
+
+      const result = await service.requestClientPasswordReset(
+        'inexistente@email.com',
+      );
+
+      expect(result).toEqual({
+        message: 'Se houver uma conta, enviaremos as instruções.',
+      });
+      expect(notificationMock.sendEmail).not.toHaveBeenCalled();
+    });
+
+    it('redefine a senha quando o código é válido', async () => {
+      prismaMock.client.findFirst.mockResolvedValue(CLIENT_STUB);
+      redisMock.get.mockResolvedValue('$2b$10$resetCodeHash');
+      bcryptMock.compare.mockResolvedValue(true as never);
+      bcryptMock.hash.mockResolvedValue('$2b$10$newPasswordHash' as never);
+      prismaMock.user.update.mockResolvedValue(CLIENT_STUB.user);
+      redisMock.del.mockResolvedValue(1);
+
+      const result = await service.resetClientPassword(
+        CLIENT_STUB.user.email,
+        '483920',
+        'NovaSenha123',
+      );
+
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: CLIENT_STUB.userId },
+        data: {
+          password: '$2b$10$newPasswordHash',
+          passwordSetAt: expect.any(Date),
+          mustChangePassword: false,
+          sessionVersion: { increment: 1 },
+        },
+      });
+      expect(redisMock.del).toHaveBeenCalledWith(
+        `client:password-reset:${CLIENT_STUB.userId}`,
+      );
+      expect(result).toEqual({ message: 'Senha redefinida com sucesso.' });
+    });
+
+    it('rejeita código inválido ou expirado', async () => {
+      prismaMock.client.findFirst.mockResolvedValue(CLIENT_STUB);
+      redisMock.get.mockResolvedValue('$2b$10$resetCodeHash');
+      bcryptMock.compare.mockResolvedValue(false as never);
+
+      await expect(
+        service.resetClientPassword(
+          CLIENT_STUB.user.email,
+          '000000',
+          'NovaSenha123',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('alteração autenticada de senha do cliente', () => {
+    it('confere a senha atual, salva somente o hash e invalida as sessões', async () => {
+      prismaMock.client.findUnique.mockResolvedValue(CLIENT_STUB);
+      bcryptMock.compare.mockResolvedValue(true as never);
+      bcryptMock.hash.mockResolvedValue('$2b$10$novaSenhaHash' as never);
+      prismaMock.user.update.mockResolvedValue(CLIENT_STUB.user);
+
+      const result = await service.changeClientPassword(
+        CLIENT_STUB.id,
+        'SenhaAtual123',
+        'NovaSenhaSegura123',
+      );
+
+      expect(bcryptMock.compare).toHaveBeenCalledWith(
+        'SenhaAtual123',
+        CLIENT_STUB.user.password,
+      );
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: CLIENT_STUB.userId },
+        data: {
+          password: '$2b$10$novaSenhaHash',
+          passwordSetAt: expect.any(Date),
+          mustChangePassword: false,
+          sessionVersion: { increment: 1 },
+        },
+      });
+      expect(result.message).toContain('Entre novamente');
+    });
+
+    it('não altera a senha quando a senha atual é incorreta', async () => {
+      prismaMock.client.findUnique.mockResolvedValue(CLIENT_STUB);
+      bcryptMock.compare.mockResolvedValue(false as never);
+
+      await expect(
+        service.changeClientPassword(
+          CLIENT_STUB.id,
+          'SenhaErrada',
+          'NovaSenhaSegura123',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('autenticação em duas etapas do cliente', () => {
+    const challengeId = 'b9ddcd87-7b14-4c87-a59f-1e661d87821e';
+
+    beforeEach(() => {
+      jest.spyOn(crypto, 'randomUUID').mockReturnValue(challengeId);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('armazena somente o hash do código ao iniciar a ativação', async () => {
+      prismaMock.client.findUnique.mockResolvedValue(CLIENT_STUB);
+      redisMock.incr.mockResolvedValue(1);
+      redisMock.expire.mockResolvedValue(1);
+      redisMock.set.mockResolvedValue('OK');
+      bcryptMock.hash.mockResolvedValue('$2b$10$twoFactorHash' as never);
+      notificationMock.sendWhatsApp.mockResolvedValue(undefined);
+
+      const result = await service.startClientTwoFactorEnrollment(
+        CLIENT_STUB.id,
+      );
+
+      expect(redisMock.set).toHaveBeenCalledWith(
+        `client:two-factor:challenge:${challengeId}`,
+        expect.any(String),
+        'EX',
+        300,
+      );
+      const payload = JSON.parse(redisMock.set.mock.calls[0][1]);
+      expect(payload).toEqual(
+        expect.objectContaining({
+          clientId: CLIENT_STUB.id,
+          purpose: 'ENROLLMENT',
+          code: '$2b$10$twoFactorHash',
+        }),
+      );
+      expect(payload.code).not.toMatch(/^\d{6}$/);
+      expect(notificationMock.sendWhatsApp).toHaveBeenCalledWith(
+        CLIENT_STUB.user.phone,
+        expect.stringContaining('Seu código de segurança'),
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          challengeId,
+          requiresTwoFactor: false,
+        }),
+      );
+    });
+
+    it('vincula o desafio de ativação ao próprio cliente', async () => {
+      prismaMock.client.findUnique.mockResolvedValue(CLIENT_STUB);
+      redisMock.get.mockResolvedValue(
+        JSON.stringify({
+          clientId: 'outro-cliente',
+          purpose: 'ENROLLMENT',
+          code: '$2b$10$twoFactorHash',
+          expiresAt: Date.now() + 60_000,
+        }),
+      );
+
+      await expect(
+        service.enableClientTwoFactor(CLIENT_STUB.id, challengeId, '483920'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
+    });
+
+    it('ativa duas etapas somente após validar o desafio e revoga sessões atuais', async () => {
+      prismaMock.client.findUnique.mockResolvedValue(CLIENT_STUB);
+      redisMock.get.mockResolvedValue(
+        JSON.stringify({
+          clientId: CLIENT_STUB.id,
+          purpose: 'ENROLLMENT',
+          code: '$2b$10$twoFactorHash',
+          expiresAt: Date.now() + 60_000,
+        }),
+      );
+      redisMock.incr.mockResolvedValue(1);
+      redisMock.expire.mockResolvedValue(1);
+      redisMock.del.mockResolvedValue(1);
+      bcryptMock.compare.mockResolvedValue(true as never);
+      prismaMock.user.update.mockResolvedValue(CLIENT_STUB.user);
+
+      const result = await service.enableClientTwoFactor(
+        CLIENT_STUB.id,
+        challengeId,
+        '483920',
+      );
+
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: CLIENT_STUB.userId },
+        data: {
+          twoFactorEnabled: true,
+          sessionVersion: { increment: 1 },
+        },
+      });
+      expect(result.twoFactorEnabled).toBe(true);
+    });
+
+    it('exige o segundo fator no login antes de emitir tokens', async () => {
+      prismaMock.client.findFirst.mockResolvedValue({
+        ...CLIENT_STUB,
+        user: { ...CLIENT_STUB.user, twoFactorEnabled: true },
+      });
+      bcryptMock.compare.mockResolvedValue(true as never);
+      bcryptMock.hash.mockResolvedValue('$2b$10$twoFactorHash' as never);
+      redisMock.incr.mockResolvedValue(1);
+      redisMock.expire.mockResolvedValue(1);
+      redisMock.set.mockResolvedValue('OK');
+      notificationMock.sendWhatsApp.mockResolvedValue(undefined);
+
+      const result = await service.loginClient(makeLoginDto());
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          challengeId,
+          requiresTwoFactor: true,
+        }),
+      );
+      expect(jwtMock.sign).not.toHaveBeenCalled();
+    });
+
+    it('emite tokens somente depois de validar o código do desafio de login', async () => {
+      redisMock.get.mockResolvedValue(
+        JSON.stringify({
+          clientId: CLIENT_STUB.id,
+          purpose: 'LOGIN',
+          code: '$2b$10$twoFactorHash',
+          expiresAt: Date.now() + 60_000,
+        }),
+      );
+      redisMock.incr.mockResolvedValue(1);
+      redisMock.expire.mockResolvedValue(1);
+      redisMock.del.mockResolvedValue(1);
+      redisMock.set.mockResolvedValue('OK');
+      bcryptMock.compare.mockResolvedValue(true as never);
+      prismaMock.client.findUnique.mockResolvedValue({
+        ...CLIENT_STUB,
+        user: { ...CLIENT_STUB.user, twoFactorEnabled: true },
+      });
+      jwtMock.sign
+        .mockReturnValueOnce(TOKEN_PAIR_STUB.access_token)
+        .mockReturnValueOnce(TOKEN_PAIR_STUB.refresh_token);
+
+      const result = await service.verifyClientTwoFactorLogin(
+        challengeId,
+        '483920',
+      );
+
+      expect(result).toEqual({
+        ...TOKEN_PAIR_STUB,
+        mustChangePassword: false,
+      });
+      expect(redisMock.del).toHaveBeenCalledWith(
+        `client:two-factor:challenge:${challengeId}`,
+        `client:two-factor:attempt:${challengeId}`,
+      );
+    });
+  });
+
   describe('refresh', () => {
-    const PAYLOAD_STUB = { sub: USER_STUB.id, email: USER_STUB.email };
+    const PAYLOAD_STUB = {
+      sub: USER_STUB.id,
+      email: USER_STUB.email,
+      sessionVersion: USER_STUB.sessionVersion,
+    };
 
     const setupHappyPath = () => {
       jwtMock.verify.mockReturnValue(PAYLOAD_STUB);
@@ -247,7 +601,11 @@ describe('AuthService', () => {
   });
 
   describe('validate', () => {
-    const PAYLOAD_STUB = { sub: USER_STUB.id, email: USER_STUB.email };
+    const PAYLOAD_STUB = {
+      sub: USER_STUB.id,
+      email: USER_STUB.email,
+      sessionVersion: USER_STUB.sessionVersion,
+    };
 
     it('verifica o token com o JWT_SECRET correto', async () => {
       jwtMock.verify.mockReturnValue(PAYLOAD_STUB);

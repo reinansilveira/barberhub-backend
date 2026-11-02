@@ -95,6 +95,8 @@ model User {
   emailVerified Boolean   @default(false)
   mustChangePassword Boolean @default(false)
   passwordSetAt DateTime?
+  sessionVersion Int     @default(0)
+  twoFactorEnabled Boolean @default(false)
   lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -105,10 +107,45 @@ model User {
   professional      Professional?
   appointmentsCreated Appointment[]  @relation("AppointmentCreator")
   refreshTokens RefreshToken[] 
+  roleAssignments UserRoleAssignment[]
+  passwordResetTokens PasswordResetToken[]
+  receivedNotifications Notification[] @relation("NotificationRecipient")
+  notificationReadReceipts NotificationReadReceipt[]
 
   @@index([email])
   @@index([role, active])
   @@map("users")
+}
+
+// `role` remains the legacy/default role while this table represents every
+// context that the same account is allowed to use (for example ADMIN +
+// PROFESSIONAL). Keeping both fields makes the rollout backward compatible.
+model UserRoleAssignment {
+  userId    String
+  role      UserRole
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, role])
+  @@index([role, userId])
+  @@map("user_roles")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  codeHash  String
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 model Client {
@@ -127,10 +164,25 @@ model Client {
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   appointments Appointment[]
   reviews      Review[]
+  notificationPreferences ClientNotificationPreference?
 
   @@index([active])
 
   @@map("clients")
+}
+
+model ClientNotificationPreference {
+  clientId        String   @id
+  emailEnabled    Boolean  @default(true)
+  smsEnabled      Boolean  @default(true)
+  whatsappEnabled Boolean  @default(true)
+  pushEnabled     Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("client_notification_preferences")
 }
 
 model PhoneVerification {
@@ -256,6 +308,7 @@ model Appointment {
   serviceId      String
   createdById    String?
   scheduledAt    DateTime
+  endsAt         DateTime
   startedAt      DateTime?
   completedAt    DateTime?
   status         AppointmentStatus @default(PENDING)
@@ -278,7 +331,7 @@ model Appointment {
 
   @@index([scheduledAt])
   @@index([professionalId, scheduledAt])
-  @@index([clientId])
+  @@index([clientId, scheduledAt])
   @@index([status])
   @@index([scheduledAt, status])
   @@map("appointments")
@@ -349,7 +402,7 @@ model TimeSlot {
   appointment  Appointment? @relation(fields: [appointmentId], references: [id])
 
   @@unique([professionalId, startsAt])
-  @@index([professionalId, startsAt, available])
+  @@index([professionalId, available, startsAt])
   @@map("time_slots")
 }
 
@@ -360,7 +413,9 @@ model TimeSlot {
 model Notification {
   id            String             @id @default(uuid())
   appointmentId String?
+  recipientUserId String?
   recipient     String
+  idempotencyKey String?           @unique
   type          NotificationType
   status        NotificationStatus @default(PENDING)
   subject       String?
@@ -376,11 +431,27 @@ model Notification {
   updatedAt     DateTime           @updatedAt
 
   appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  recipientUser User? @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  readReceipts NotificationReadReceipt[]
 
   @@index([status, attempts])
   @@index([appointmentId])
   @@index([createdAt])
+  @@index([recipientUserId, createdAt])
   @@map("notifications")
+}
+
+model NotificationReadReceipt {
+  notificationId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([notificationId, userId])
+  @@index([userId, readAt])
+  @@map("notification_read_receipts")
 }
 
 // ============================================================================

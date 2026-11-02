@@ -17,6 +17,7 @@ export const APPOINTMENT_STUB = {
   professionalId: PROFESSIONAL_STUB.id,
   serviceId: SERVICE_STUB.id,
   scheduledAt: SLOT_STUB.startsAt,
+  endsAt: new Date(SLOT_STUB.startsAt.getTime() + 30 * 60_000),
   duration: 30,
   price: 45.0,
   status: AppointmentStatus.PENDING,

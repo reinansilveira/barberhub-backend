@@ -15,7 +15,9 @@ export class ReminderScheduler {
   @Cron(CronExpression.EVERY_DAY_AT_10AM)
   async sendReengagementMessages() {
     const now = new Date();
-    const thirtyOneDaysAgo = new Date(now.getTime() - 2 * 60 * 1000);
+    const thirtyOneDaysAgo = new Date(
+      now.getTime() - 31 * 24 * 60 * 60 * 1000,
+    );
 
     const inactiveClients = await this.prisma.client.findMany({
       where: {
@@ -36,17 +38,33 @@ export class ReminderScheduler {
     for (const client of inactiveClients) {
       if (!client.user.phone) continue;
 
-      await this.prisma.client.update({
-        where: { id: client.id },
+      const claimed = await this.prisma.client.updateMany({
+        where: {
+          id: client.id,
+          OR: [
+            { reengagementSentAt: null },
+            { reengagementSentAt: { lte: thirtyOneDaysAgo } },
+          ],
+        },
         data: { reengagementSentAt: now },
       });
+      if (claimed.count !== 1) continue;
 
-      await this.producer.publishReengagement({
-        clientId: client.id,
-        clientName: client.user.name,
-        clientPhone: client.user.phone,
-        clientEmail: client.user.email ?? undefined,
-      });
+      try {
+        await this.producer.publishReengagement({
+          clientId: client.id,
+          clientUserId: client.userId,
+          clientName: client.user.name,
+          clientPhone: client.user.phone,
+          clientEmail: client.user.email ?? undefined,
+        });
+      } catch (error) {
+        await this.prisma.client.updateMany({
+          where: { id: client.id, reengagementSentAt: now },
+          data: { reengagementSentAt: client.reengagementSentAt },
+        });
+        throw error;
+      }
 
       this.logger.log(`Reengajamento enviado para cliente ${client.id}`);
     }
@@ -71,16 +89,41 @@ export class ReminderScheduler {
     });
 
     for (const apt of appointments) {
-      await this.producer.publishReminder({
-        appointmentId: apt.id,
-        clientPhone: apt.client.user.phone,
-        clientEmail: apt.client.user.email ?? undefined,
-        serviceName: apt.service.name,
-        professionalName: apt.professional.user.name,
-        scheduledAt: apt.scheduledAt,
+      const claimed = await this.prisma.appointment.updateMany({
+        where: {
+          id: apt.id,
+          reminderSent: false,
+          status: 'CONFIRMED',
+        },
+        data: { reminderSent: true },
       });
 
-      this.logger.log(`Lembrete agendado para appointment ${apt.id}`);
+      if (claimed.count !== 1) continue;
+
+      try {
+        await this.producer.publishReminder({
+          appointmentId: apt.id,
+          clientId: apt.clientId,
+          clientUserId: apt.client.userId,
+          clientPhone: apt.client.user.phone,
+          clientEmail: apt.client.user.email ?? undefined,
+          serviceName: apt.service.name,
+          professionalName: apt.professional.user.name,
+          scheduledAt: apt.scheduledAt,
+        });
+
+        this.logger.log(`Lembrete agendado para appointment ${apt.id}`);
+      } catch (error) {
+        await this.prisma.appointment.updateMany({
+          where: {
+            id: apt.id,
+            reminderSent: true,
+            status: 'CONFIRMED',
+          },
+          data: { reminderSent: false },
+        });
+        throw error;
+      }
     }
   }
 }

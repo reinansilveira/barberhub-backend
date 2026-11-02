@@ -6,6 +6,7 @@ import Redis from 'ioredis';
 
 import {
   ClientModule,
+  ClientAccountModule,
   ProfessionalModule,
   ServicesModule,
   AppointmentsModule,
@@ -34,6 +35,7 @@ import {
       }),
     }),
     ClientModule,
+    ClientAccountModule,
     ProfessionalModule,
     ServicesModule,
     AppointmentsModule,

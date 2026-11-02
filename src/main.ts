@@ -6,6 +6,7 @@ import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { JwtService } from '@nestjs/jwt';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { PrismaService } from './shared/prisma/prisma.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -37,8 +38,9 @@ async function bootstrap() {
 
   const reflector = app.get(Reflector);
   const jwtService = app.get(JwtService);
+  const prisma = app.get(PrismaService);
 
-  app.useGlobalGuards(new JwtAuthGuard(reflector, jwtService));
+  app.useGlobalGuards(new JwtAuthGuard(reflector, jwtService, prisma));
 
   const config = new DocumentBuilder()
     .setTitle('BarberHub API')

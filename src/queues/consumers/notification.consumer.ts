@@ -2,6 +2,7 @@ import { Controller, Logger } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { NotificationsService } from '../../modules/notifications/notifications.service';
 import { NotificationSenderService } from '../../modules/notifications/sender/notification-sender.service';
+import { ClientAccountService } from '../../modules/client-account/client-account.service';
 import {
   buildAppointmentCreatedWhatsApp,
   buildAppointmentCreatedEmail,
@@ -12,7 +13,9 @@ import {
   buildProfessionalAppointmentCreatedEmail,    
 } from '../builders/notification-message.builder';
 import {
+  AppointmentCancelledEvent,
   AppointmentCreatedEvent,
+  AppointmentNotificationEvent,
   AppointmentReminderEvent,
   ClientReengagementEvent,
 } from '../interfaces/events.interface';
@@ -24,6 +27,7 @@ export class NotificationConsumer {
   constructor(
     private readonly notificationsService: NotificationsService,
     private readonly sender: NotificationSenderService,
+    private readonly clientAccountService: ClientAccountService,
   ) { }
 
   @EventPattern('appointments.created')
@@ -35,6 +39,9 @@ export class NotificationConsumer {
 
     await this.sendNotifications({
       appointmentId: data.appointmentId,
+      clientId: data.clientId,
+      recipientUserId: data.clientUserId,
+      eventKey: `appointments.created:${data.appointmentId}:client`,
       phone: data.clientPhone,
       email: data.clientEmail,
       zapMessage: clientZap,
@@ -47,9 +54,11 @@ export class NotificationConsumer {
 
     await this.sendNotifications({
       appointmentId: data.appointmentId,
+      recipientUserId: data.professionalUserId,
+      eventKey: `appointments.created:${data.appointmentId}:professional`,
       phone: data.professionalPhone,
       email: data.professionalEmail,
-      zapMessage: '',
+      zapMessage: profText,
       emailSubject: profSubject,
       emailHtml: profHtml,
       emailText: profText,
@@ -65,6 +74,9 @@ export class NotificationConsumer {
 
     await this.sendNotifications({
       appointmentId: data.appointmentId,
+      clientId: data.clientId,
+      recipientUserId: data.clientUserId,
+      eventKey: `appointments.reminder:${data.appointmentId}:client`,
       phone: data.clientPhone,
       email: data.clientEmail,
       zapMessage,
@@ -75,21 +87,39 @@ export class NotificationConsumer {
   }
 
   @EventPattern('appointments.confirmed')
-  async handleConfirmed(@Payload() data: any) {
+  async handleConfirmed(@Payload() data: AppointmentCreatedEvent) {
     this.logger.log(`Agendamento confirmado: ${data.appointmentId}`);
-    await this.processSimple(data, 'Agendamento confirmado!');
+    await this.processSimple(data, 'confirmed', 'Agendamento confirmado!');
   }
 
   @EventPattern('appointments.cancelled')
-  async handleCancelled(@Payload() data: any) {
+  async handleCancelled(@Payload() data: AppointmentCancelledEvent) {
     this.logger.log(`Agendamento cancelado: ${data.appointmentId}`);
-    await this.processSimple(data, `Cancelado: ${data.cancelReason}`);
+    await this.processSimple(
+      data,
+      'cancelled',
+      `Cancelado: ${data.cancelReason}`,
+    );
   }
 
   @EventPattern('appointments.completed')
-  async handleCompleted(@Payload() data: any) {
+  async handleCompleted(@Payload() data: AppointmentCreatedEvent) {
     this.logger.log(`Agendamento concluído: ${data.appointmentId}`);
-    await this.processSimple(data, 'Atendimento concluído. Deixe sua avaliação!');
+    await this.processSimple(
+      data,
+      'completed',
+      'Atendimento concluído. Deixe sua avaliação!',
+    );
+  }
+
+  @EventPattern('appointments.rescheduled')
+  async handleRescheduled(@Payload() data: AppointmentCreatedEvent) {
+    this.logger.log(`Agendamento remarcado: ${data.appointmentId}`);
+    await this.processSimple(
+      data,
+      'rescheduled',
+      'Agendamento remarcado com sucesso.',
+    );
   }
 
   @EventPattern('clients.reengagement')
@@ -102,6 +132,9 @@ export class NotificationConsumer {
     const { subject, html, text } = buildReengagementEmail(data.clientName, BOOKING_URL);
 
     await this.sendNotifications({
+      clientId: data.clientId,
+      recipientUserId: data.clientUserId,
+      eventKey: `clients.reengagement:${data.clientId}:client`,
       phone: data.clientPhone,
       email: data.clientEmail,
       zapMessage,
@@ -111,9 +144,16 @@ export class NotificationConsumer {
     });
   }
 
-  private async processSimple(data: any, message: string) {
+  private async processSimple(
+    data: AppointmentNotificationEvent,
+    eventName: string,
+    message: string,
+  ) {
     await this.sendNotifications({
       appointmentId: data.appointmentId,
+      clientId: data.clientId,
+      recipientUserId: data.clientUserId,
+      eventKey: `appointments.${eventName}:${data.appointmentId}:client`,
       phone: data.clientPhone,
       email: data.clientEmail,
       zapMessage: message,
@@ -125,6 +165,9 @@ export class NotificationConsumer {
 
   private async sendNotifications(params: {
     appointmentId?: string;
+    clientId?: string;
+    recipientUserId?: string;
+    eventKey: string;
     phone?: string;
     email?: string;
     zapMessage: string;
@@ -132,50 +175,86 @@ export class NotificationConsumer {
     emailHtml: string;
     emailText: string;
   }) {
-    const { appointmentId, phone, email, zapMessage, emailSubject, emailHtml, emailText } = params;
+    const {
+      appointmentId,
+      clientId,
+      recipientUserId,
+      eventKey,
+      phone,
+      email,
+      zapMessage,
+      emailSubject,
+      emailHtml,
+      emailText,
+    } = params;
+    const preferences = clientId
+      ? await this.clientAccountService.getNotificationPreferences(clientId)
+      : null;
 
-    if (phone) {
-      let notification;
-      try {
-        notification = await this.notificationsService.create({
+    if (phone && preferences?.whatsappEnabled !== false) {
+      await this.sendChannel(
+        {
           appointmentId,
+          recipientUserId,
           recipient: phone,
           type: 'WHATSAPP',
           subject: emailSubject,
           message: zapMessage,
-        });
-
-        await this.sender.sendWhatsApp(phone, zapMessage);
-
-        await this.notificationsService.updateStatus(notification.id, { status: 'SENT' });
-      } catch (error: any) {
-        this.logger.error(`Erro ao enviar mensagem`, error?.message || error);
-        if (notification) {
-          await this.notificationsService.updateStatus(notification.id, { status: 'FAILED' });
-        }
-      }
+          idempotencyKey: `${eventKey}:WHATSAPP`,
+        },
+        () => this.sender.sendWhatsApp(phone, zapMessage),
+      );
     }
 
-    if (email) {
-      let notification;
-      try {
-        notification = await this.notificationsService.create({
+    if (email && preferences?.emailEnabled !== false) {
+      await this.sendChannel(
+        {
           appointmentId,
+          recipientUserId,
           recipient: email,
           type: 'EMAIL',
           subject: emailSubject,
           message: emailText,
-        });
-
-        await this.sender.sendEmail(email, emailSubject, emailHtml, emailText);
-
-        await this.notificationsService.updateStatus(notification.id, { status: 'SENT' });
-      } catch (error) {
-        this.logger.error(`Erro ao enviar mensagem`);
-        if (notification) {
-          await this.notificationsService.updateStatus(notification.id, { status: 'FAILED' });
-        }
-      }
+          idempotencyKey: `${eventKey}:EMAIL`,
+        },
+        () => this.sender.sendEmail(email, emailSubject, emailHtml, emailText),
+      );
     }
+  }
+
+  private async sendChannel(
+    data: {
+      appointmentId?: string;
+      recipientUserId?: string;
+      recipient: string;
+      type: 'WHATSAPP' | 'EMAIL';
+      subject: string;
+      message: string;
+      idempotencyKey: string;
+    },
+    send: () => Promise<void>,
+  ) {
+    const notification = await this.notificationsService.create(data);
+
+    if (notification.status !== 'PENDING') return;
+
+    const deliveryClaimed = await this.notificationsService.claimPendingDelivery(
+      notification.id,
+    );
+    if (!deliveryClaimed) return;
+
+    try {
+      await send();
+    } catch (error: any) {
+      this.logger.error(`Erro ao enviar mensagem`, error?.message || error);
+      await this.notificationsService.updateStatus(notification.id, {
+        status: 'FAILED',
+      });
+      return;
+    }
+
+    await this.notificationsService.updateStatus(notification.id, {
+      status: 'SENT',
+    });
   }
 }

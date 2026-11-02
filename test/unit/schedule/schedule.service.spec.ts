@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 
 import { ScheduleService } from '../../../src/modules/schedule/schedule.service';
 import { PrismaService } from '../../../src/shared/prisma/prisma.service';
@@ -11,6 +12,12 @@ import {
   SCHEDULE_INATIVO_STUB,
   SCHEDULE_POR_DATA_STUB,
 } from '../../mocks/stubs/schedule.stub';
+
+const ADMIN_ACTOR = {
+  sub: 'uuid-admin-1',
+  accountType: 'USER' as const,
+  role: UserRole.ADMIN,
+};
 
 describe('ScheduleService', () => {
   let service: ScheduleService;
@@ -38,7 +45,7 @@ describe('ScheduleService', () => {
     it('busca schedules ativos quando nenhum filtro é informado', async () => {
       prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
 
-      await service.findAll();
+      await service.findAll(undefined, true, ADMIN_ACTOR);
 
       expect(prismaMock.schedule.findMany).toHaveBeenCalledWith({
         where: { professionalId: undefined, active: true },
@@ -49,7 +56,7 @@ describe('ScheduleService', () => {
     it('filtra por professionalId quando informado', async () => {
       prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
 
-      await service.findAll('uuid-prof-1');
+      await service.findAll('uuid-prof-1', true, ADMIN_ACTOR);
 
       expect(prismaMock.schedule.findMany).toHaveBeenCalledWith({
         where: { professionalId: 'uuid-prof-1', active: true },
@@ -57,10 +64,10 @@ describe('ScheduleService', () => {
       });
     });
 
-    it('busca schedules inativos quando active é "false"', async () => {
+    it('busca schedules inativos quando active é false', async () => {
       prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_INATIVO_STUB]);
 
-      await service.findAll(undefined, 'false');
+      await service.findAll(undefined, false, ADMIN_ACTOR);
 
       expect(prismaMock.schedule.findMany).toHaveBeenCalledWith({
         where: { professionalId: undefined, active: false },
@@ -71,7 +78,7 @@ describe('ScheduleService', () => {
     it('ordena por dayOfWeek e startTime crescente', async () => {
       prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
 
-      await service.findAll();
+      await service.findAll(undefined, true, ADMIN_ACTOR);
 
       expect(prismaMock.schedule.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -83,7 +90,7 @@ describe('ScheduleService', () => {
     it('trata string vazia de professionalId como undefined', async () => {
       prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
 
-      await service.findAll('');
+      await service.findAll('', true, ADMIN_ACTOR);
 
       expect(prismaMock.schedule.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -95,9 +102,13 @@ describe('ScheduleService', () => {
     it('retorna a lista de schedules', async () => {
       prismaMock.schedule.findMany.mockResolvedValue([SCHEDULE_STUB]);
 
-      const result = await service.findAll();
+      const result = await service.findAll(undefined, true, ADMIN_ACTOR);
 
       expect(result).toEqual([SCHEDULE_STUB]);
+    });
+
+    it('impede listar a agenda global sem um administrador autenticado', async () => {
+      await expect(service.findAll()).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -208,16 +219,16 @@ describe('ScheduleService', () => {
       });
     });
 
-    it('define dayOfWeek como null quando não é informado', async () => {
-      prismaMock.schedule.create.mockResolvedValue(SCHEDULE_POR_DATA_STUB);
-
-      await service.create(makeCreateScheduleDto({
-        schedules: [makeScheduleItemDto({ dayOfWeek: undefined })],
-      }));
-
-      expect(prismaMock.schedule.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ dayOfWeek: null }),
-      });
+    it('rejeita schedule sem data específica nem dia da semana', async () => {
+      await expect(
+        service.create(
+          makeCreateScheduleDto({
+            schedules: [
+              makeScheduleItemDto({ dayOfWeek: undefined, date: undefined }),
+            ],
+          }),
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('define breakStart e breakEnd como null quando não são informados', async () => {
@@ -312,7 +323,7 @@ describe('ScheduleService', () => {
 
       await service.update(
         'uuid-schedule-1',
-        makeScheduleItemDto({ date: '2026-03-15' }),
+        makeScheduleItemDto({ date: '2026-03-15', dayOfWeek: undefined }),
       );
 
       expect(prismaMock.schedule.update).toHaveBeenCalledWith({
@@ -327,11 +338,15 @@ describe('ScheduleService', () => {
       const dataExistente = new Date('2026-02-19');
       prismaMock.schedule.findUnique.mockResolvedValue({
         ...SCHEDULE_STUB,
+        dayOfWeek: null,
         date: dataExistente,
       });
       prismaMock.schedule.update.mockResolvedValue(SCHEDULE_STUB);
 
-      await service.update('uuid-schedule-1', makeScheduleItemDto({ date: undefined }));
+      await service.update(
+        'uuid-schedule-1',
+        makeScheduleItemDto({ date: undefined, dayOfWeek: undefined }),
+      );
 
       expect(prismaMock.schedule.update).toHaveBeenCalledWith({
         where: { id: 'uuid-schedule-1' },
@@ -376,6 +391,7 @@ describe('ScheduleService', () => {
 
   describe('deactivate', () => {
     it('desativa o schedule definindo active como false', async () => {
+      prismaMock.schedule.findUnique.mockResolvedValue(SCHEDULE_STUB);
       prismaMock.schedule.update.mockResolvedValue({ ...SCHEDULE_STUB, active: false });
 
       await service.deactivate('uuid-schedule-1');
@@ -388,6 +404,7 @@ describe('ScheduleService', () => {
 
     it('retorna o schedule desativado', async () => {
       const scheduleDesativado = { ...SCHEDULE_STUB, active: false };
+      prismaMock.schedule.findUnique.mockResolvedValue(SCHEDULE_STUB);
       prismaMock.schedule.update.mockResolvedValue(scheduleDesativado);
 
       const result = await service.deactivate('uuid-schedule-1');

@@ -32,10 +32,12 @@ export class Services {
     }
 
     async create(dto: CreateServicesDto) {
+        if (!dto.duration || dto.duration <= 0) {
+            throw new BadRequestException('A duração do serviço deve ser maior que zero');
+        }
         return this.prisma.service.create({
             data: {
                 ...dto,
-                duration: dto.duration ?? 0,
             },
         });
     }

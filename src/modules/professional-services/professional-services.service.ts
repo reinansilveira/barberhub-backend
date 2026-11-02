@@ -3,10 +3,16 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { CreateProfessionalServiceDto } from './dto/create-professional-service.dto';
 import { UpdateProfessionalServiceDto } from './dto/update-professional-service.dto';
+import {
+  AuthPrincipal,
+  hasRole,
+} from '../auth/types/auth-principal.type';
 
 @Injectable()
 export class ProfessionalServicesService {
@@ -49,7 +55,8 @@ export class ProfessionalServicesService {
     return professional;
   }
 
-  async create(data: CreateProfessionalServiceDto) {
+  async create(data: CreateProfessionalServiceDto, actor?: AuthPrincipal) {
+    await this.assertCanManageProfessional(data.professionalId, actor);
     const professional = await this.prisma.professional.findUnique({
       where: { id: data.professionalId },
     });
@@ -88,7 +95,9 @@ export class ProfessionalServicesService {
     professionalId: string,
     serviceId: string,
     data: UpdateProfessionalServiceDto,
+    actor?: AuthPrincipal,
   ) {
+    await this.assertCanManageProfessional(professionalId, actor);
     const record = await this.prisma.professionalService.findUnique({
       where: {
         professionalId_serviceId: { professionalId, serviceId },
@@ -107,12 +116,39 @@ export class ProfessionalServicesService {
     });
   }
 
-  async deactivate(professionalId: string, serviceId: string) {
+  async deactivate(
+    professionalId: string,
+    serviceId: string,
+    actor?: AuthPrincipal,
+  ) {
+    await this.assertCanManageProfessional(professionalId, actor);
     return this.prisma.professionalService.update({
       where: {
         professionalId_serviceId: { professionalId, serviceId },
       },
       data: { active: false },
     });
+  }
+
+  private async assertCanManageProfessional(
+    professionalId: string,
+    actor?: AuthPrincipal,
+  ) {
+    if (!actor || hasRole(actor, UserRole.ADMIN)) return;
+
+    const professional = await this.prisma.professional.findUnique({
+      where: { id: professionalId },
+      select: { userId: true },
+    });
+
+    if (
+      !professional ||
+      !hasRole(actor, UserRole.PROFESSIONAL) ||
+      professional.userId !== actor.sub
+    ) {
+      throw new ForbiddenException(
+        'Você não pode alterar os serviços deste profissional',
+      );
+    }
   }
 }

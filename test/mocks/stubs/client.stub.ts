@@ -14,10 +14,13 @@ export const CLIENT_STUB = {
     phone: '+5579999999999',
     email: 'joao@email.com',
     password: '$2b$10$hashedPasswordAqui',
+    role: 'CLIENT' as const,
     avatar: null,
     gender: null,
     active: true,
     mustChangePassword: false,
+    sessionVersion: 0,
+    twoFactorEnabled: false,
   },
 };
 
@@ -39,8 +42,10 @@ export const CLIENT_RESPONSE_STUB = {
   name: CLIENT_COMPLETO_STUB.user.name,
   phone: CLIENT_COMPLETO_STUB.user.phone,
   email: CLIENT_COMPLETO_STUB.user.email,
+  avatar: CLIENT_COMPLETO_STUB.user.avatar,
   phoneVerifiedAt: CLIENT_COMPLETO_STUB.phoneVerifiedAt,
   emailVerifiedAt: CLIENT_COMPLETO_STUB.emailVerifiedAt,
+  twoFactorEnabled: CLIENT_COMPLETO_STUB.user.twoFactorEnabled,
   active: CLIENT_COMPLETO_STUB.active,
   createdAt: CLIENT_COMPLETO_STUB.createdAt,
 };
